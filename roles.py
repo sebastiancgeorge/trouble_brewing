@@ -157,8 +157,8 @@ SETUP_COUNTS = {
     13: (9, 0, 3, 1), 14: (9, 1, 3, 1), 15: (9, 2, 3, 1),
 }
 
-# evil info steps only exist in games of this size or larger
-EVIL_INFO_MIN_PLAYERS = 7
+# Dead Eyes Only: the evil meeting always happens so evil players can identify each other
+EVIL_INFO_MIN_PLAYERS = 0
 
 FIRST_NIGHT = ["minion_info", "demon_info", "poisoner", "washerwoman", "librarian", "investigator",
                "chef", "empath", "fortune_teller", "butler", "spy"]
