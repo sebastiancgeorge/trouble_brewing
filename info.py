@@ -124,13 +124,20 @@ def suggest(game: Game, key: str, actor: Player | None, targets: list[Player]) -
     if key == "spy":
         return grimoire_text(game)
     if key == "minion_info":
-        evil_names = ", ".join(p.name for p in game.players if not is_good(p.character))
-        return f"You are a Minion. The evil players in this game are: {evil_names}."
+        if game.dead_eyes:
+            evil_names = ", ".join(p.name for p in game.players if not is_good(p.character))
+            return f"You are a Minion. The evil players in this game are: {evil_names}."
+        demon = ", ".join(p.name for p in game.players if char_type(p.character) == DEMON)
+        minions = ", ".join(p.name for p in game.players if char_type(p.character) == MINION)
+        return f"The Demon is {demon}. The Minions are {minions}."
     if key == "demon_info":
-        evil_names = ", ".join(p.name for p in game.players if not is_good(p.character))
         bluffs = ", ".join(char_name(b) for b in game.bluffs)
-        return (f"You are the Demon. The evil players in this game are: {evil_names}. "
-                f"These good characters are not in play (safe bluffs): {bluffs}.")
+        if game.dead_eyes:
+            evil_names = ", ".join(p.name for p in game.players if not is_good(p.character))
+            return (f"You are the Demon. The evil players in this game are: {evil_names}. "
+                    f"These good characters are not in play (safe bluffs): {bluffs}.")
+        minions = ", ".join(p.name for p in game.players if char_type(p.character) == MINION)
+        return f"Your Minions are {minions}. These good characters are not in play (safe bluffs): {bluffs}."
     return None
 
 

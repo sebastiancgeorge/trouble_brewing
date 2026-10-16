@@ -10,6 +10,7 @@ import copy
 import math
 import random
 import secrets
+import time
 from dataclasses import dataclass, field
 
 import dealing
@@ -57,6 +58,7 @@ class Game:
         self.players: list[Player] = []
         self.version = 0
         self._next_pid = 1
+        self.dead_eyes = False
         # storyteller undo stack: [{"label", "seen", "state", "phone_inputs"}], newest last
         self.history: list[dict] = []
         # picks and taps made on phones; undo reports how many it throws away
@@ -91,6 +93,8 @@ class Game:
         self.second_round_done = False
         # notes from players to the Storyteller: [{"pid", "text", "label", "read"}]
         self.inbox: list[dict] = []
+        # day timer: absolute time.time() when it fires, or None
+        self.timer_end: float | None = None
         for p in self.players:
             p.character = p.believed = None
             p.alive, p.ghost_vote, p.messages, p.prompt = True, True, [], None
@@ -180,6 +184,12 @@ class Game:
         i = self.players.index(p)
         j = max(0, min(len(self.players) - 1, i + delta))
         self.players.insert(j, self.players.pop(i))
+
+    def set_variant(self, dead_eyes: bool) -> None:
+        """Toggle the Dead Eyes Only variant (lobby or setup only)."""
+        self._require("lobby", "setup")
+        self.dead_eyes = bool(dead_eyes)
+        self._log(f"Variant set: {'Dead Eyes Only' if self.dead_eyes else 'Standard Trouble Brewing'}")
 
     # --- setup ---
 
@@ -317,6 +327,7 @@ class Game:
         self.poisoned = self.protected = self.master = None
         self.night_deaths = []
         self.second_round_done = False
+        self.timer_end = None
         for p in self.players:
             p.prompt = None
         self.steps = self._build_steps()
@@ -406,7 +417,8 @@ class Game:
         steps = []
         for key in FIRST_NIGHT if self.night == 1 else OTHER_NIGHTS:
             if key in ("minion_info", "demon_info"):
-                if len(self.players) < EVIL_INFO_MIN_PLAYERS:
+                min_players = 0 if self.dead_eyes else EVIL_INFO_MIN_PLAYERS
+                if len(self.players) < min_players:
                     continue
                 wanted = MINION if key == "minion_info" else DEMON
                 pids = [p.pid for p in self.players if CHARACTERS[p.character]["type"] == wanted]
@@ -439,12 +451,13 @@ class Game:
 
         Dead Eyes Only: living players see a generic prompt that does not reveal their character;
         dead players (e.g. the Ravenkeeper) already know their role and see the specific prompt.
+        In the standard variant every player sees the full prompt.
         """
         s = self._step(step)
         if not s["choose"]:
             raise GameError("This step has no choice to make")
         player = self.get(s["pids"][0])
-        if player.alive:
+        if self.dead_eyes and player.alive:
             n = s["choose"]
             text = (f"The Storyteller needs you to choose "
                     f"{'two players' if n == 2 else 'another player' if not s['allow_self'] else 'a player'}.")
@@ -757,17 +770,17 @@ class Game:
         alive_before = self.alive_count()
         p.alive = False
         self._log(f"{p.name} ({info.char_name(p.character)}) dies: {cause}")
-        # Dead Eyes Only: reveal the player's true character
-        char = CHARACTERS[p.character]
-        team_name = "evil" if char["type"] in (MINION, DEMON) else "good"
-        reveal = f"You were the {char['name']} ({char['type'].title()}, {team_name} team)."
-        if p.character == "drunk" and p.believed:
-            reveal += (f" You believed you were the {info.char_name(p.believed)},"
-                       f" but your ability did not work.")
-        if self.phase == "night":
-            self._notify(p.pid, reveal)
-        else:
-            p.messages.append({"label": self._stamp(), "text": reveal})
+        if self.dead_eyes:
+            char = CHARACTERS[p.character]
+            team_name = "evil" if char["type"] in (MINION, DEMON) else "good"
+            reveal = f"You were the {char['name']} ({char['type'].title()}, {team_name} team)."
+            if p.character == "drunk" and p.believed:
+                reveal += (f" You believed you were the {info.char_name(p.believed)},"
+                           f" but your ability did not work.")
+            if self.phase == "night":
+                self._notify(p.pid, reveal)
+            else:
+                p.messages.append({"label": self._stamp(), "text": reveal})
         if p.character == "poisoner":
             self.poisoned = None
         if self._type_of(p) == DEMON and not self._alive_demon() and alive_before >= 5:
@@ -823,6 +836,34 @@ class Game:
             raise GameError("Team must be good or evil")
         self._win(team, "Declared by the Storyteller.")
 
+    # --- day timer ---
+
+    def start_timer(self, minutes: int) -> None:
+        """Start a discussion timer for the current day (1-15 minutes)."""
+        self._require("day")
+        minutes = int(minutes)
+        if not 1 <= minutes <= 15:
+            raise GameError("Timer must be between 1 and 15 minutes")
+        self.timer_end = time.time() + minutes * 60
+        self._announce(f"Discussion timer started: {minutes} minute{'s' if minutes != 1 else ''}.")
+
+    def stop_timer(self) -> None:
+        """Cancel the running day timer."""
+        self._require("day")
+        if self.timer_end is None:
+            raise GameError("No timer is running")
+        self.timer_end = None
+        self._announce("Discussion timer cancelled.")
+
+    def check_timer(self) -> bool:
+        """Fire the timer if it expired. Returns True if it just fired (state changed)."""
+        if self.timer_end is not None and self.phase == "day" and time.time() >= self.timer_end:
+            self.timer_end = None
+            self._announce("Time is up!")
+            self.buzz += 1
+            return True
+        return False
+
     def reset(self) -> None:
         """Back to the lobby with the same seated players."""
         self._reset_round()
@@ -831,7 +872,7 @@ class Game:
 
     UNDO_DEPTH = 30
     # survive an undo: counters phones compare, notes players wrote, the record of what happened
-    _KEPT_ON_UNDO = ("version", "buzz", "inbox", "log", "history", "_next_pid", "phone_inputs")
+    _KEPT_ON_UNDO = ("version", "buzz", "inbox", "log", "history", "_next_pid", "phone_inputs", "dead_eyes")
 
     def snapshot(self) -> dict:
         """Deep copy of everything an undo restores (all state except _KEPT_ON_UNDO)."""
@@ -891,9 +932,10 @@ class Game:
         Tonight's deaths stay hidden (seat still alive) until dawn is announced.
         """
         over = self.phase == "over"
+        timer = max(0, round(self.timer_end - time.time())) if self.timer_end else None
         return {
             "version": self.version, "phase": self.phase, "night": self.night, "day": self.day,
-            "counts": self.counts, "buzz": self.buzz,
+            "counts": self.counts, "buzz": self.buzz, "dead_eyes": self.dead_eyes, "timer": timer,
             # from the public alive count, so a night kill does not show early
             "threshold": math.ceil(sum(self._publicly_alive(p) for p in self.players) / 2),
             "seats": [{"pid": p.pid, "name": p.name, "alive": self._publicly_alive(p), "ghost_vote": p.ghost_vote,
@@ -913,16 +955,20 @@ class Game:
 
         Dead Eyes Only: living players do not see their character. Dead players see their true
         character (not what they believed). Everyone sees all characters when the game is over.
+        Standard: every player sees the character they believe they hold once the game starts.
         """
         p = self.by_token(token)
         started = self.phase in ("night", "day", "over")
         over = self.phase == "over"
-        if over:
-            role = {"id": p.character, **CHARACTERS[p.character]} if p.character else None
-        elif started and not p.alive:
-            role = {"id": p.character, **CHARACTERS[p.character]} if p.character else None
+        if self.dead_eyes:
+            if over:
+                role = {"id": p.character, **CHARACTERS[p.character]} if p.character else None
+            elif started and not p.alive:
+                role = {"id": p.character, **CHARACTERS[p.character]} if p.character else None
+            else:
+                role = None
         else:
-            role = None
+            role = {"id": p.believed, **CHARACTERS[p.believed]} if started and p.believed else None
         return {**self.public_view(), "me": {
             "pid": p.pid, "name": p.name, "alive": self._publicly_alive(p),
             "role": role,

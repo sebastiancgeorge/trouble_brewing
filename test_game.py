@@ -1,6 +1,7 @@
 """Rule tests for the Trouble Brewing engine. Run: uv run --with pytest pytest -q"""
 
 import random
+import time
 
 import pytest
 
@@ -11,9 +12,11 @@ from roles import CHARACTERS, NIGHT_CHOICES, is_good
 NAMES = ["Asha", "Ben", "Chen", "Dev", "Ema", "Finn", "Gita", "Hari", "Ines"]
 
 
-def make(chars: list[str], seed: int = 1, phones: bool = False) -> Game:
+def make(chars: list[str], seed: int = 1, phones: bool = False, dead_eyes: bool = False) -> Game:
     """Seat len(chars) players (joined from phones if phones), force their characters in seat order, start night 1."""
     g = Game(random.Random(seed))
+    if dead_eyes:
+        g.dead_eyes = True
     for n in NAMES[:len(chars)]:
         g.add_player(n, phone=phones)
     g.deal()
@@ -50,14 +53,18 @@ def test_first_night_order_and_evil_info():
     g = make(NINE)
     assert [s["key"] for s in g.steps] == ["minion_info", "demon_info", "empath"]
     g.resolve(0, [])
-    assert "You are a Minion" in g.steps[0]["suggestion"]
-    assert "Asha" in g.steps[0]["suggestion"]
+    assert "The Demon is Asha" in g.steps[0]["suggestion"]
 
 
 def test_small_game_includes_evil_info():
-    g = make(["imp", "poisoner", "empath", "chef", "saint"])
+    g = make(["imp", "poisoner", "empath", "chef", "saint"], dead_eyes=True)
     assert "minion_info" in [s["key"] for s in g.steps]
     assert "demon_info" in [s["key"] for s in g.steps]
+
+
+def test_small_game_skips_evil_info_in_standard():
+    g = make(["imp", "poisoner", "empath", "chef", "saint"])
+    assert "minion_info" not in [s["key"] for s in g.steps]
 
 
 def test_monk_protects_and_soldier_survives():
@@ -607,14 +614,14 @@ def test_night_kill_does_not_move_public_threshold():
 # --- Dead Eyes Only ---
 
 def test_alive_player_view_hides_role():
-    g = make(NINE)
+    g = make(NINE, dead_eyes=True)
     for x in g.players:
         view = g.player_view(x.token)["me"]
         assert view["role"] is None, f"living {x.name} should not see their role"
 
 
 def test_dead_player_view_reveals_true_character():
-    g = make(NINE)
+    g = make(NINE, dead_eyes=True)
     to_night2(g)
     g.resolve(step(g, "imp"), [p(g, "Ema").pid])
     ema = p(g, "Ema")
@@ -625,6 +632,7 @@ def test_dead_player_view_reveals_true_character():
 
 def test_drunk_death_reveals_drunk_not_believed():
     g = _setup(["imp", "poisoner", "drunk", "empath", "chef", "saint", "mayor"])
+    g.dead_eyes = True
     g.set_character(g.players[2].pid, "drunk", believed="monk")
     held = {x for pl in g.players for x in (pl.character, pl.believed)}
     g.bluffs = [c for c in CHARACTERS if is_good(c) and c not in held][:3]
@@ -642,7 +650,7 @@ def test_drunk_death_reveals_drunk_not_believed():
 
 
 def test_death_reveal_on_execution():
-    g = make(NINE)
+    g = make(NINE, dead_eyes=True)
     g.start_day()
     g.nominate(p(g, "Chen").pid, p(g, "Asha").pid)
     g.record_votes(0, [x.pid for x in g.players[:5]])
@@ -654,7 +662,7 @@ def test_death_reveal_on_execution():
 
 
 def test_death_reveal_on_night_kill_arrives_at_dawn():
-    g = make(NINE)
+    g = make(NINE, dead_eyes=True)
     to_night2(g)
     g.resolve(step(g, "imp"), [p(g, "Ema").pid])
     ema = p(g, "Ema")
@@ -666,7 +674,7 @@ def test_death_reveal_on_night_kill_arrives_at_dawn():
 
 
 def test_generic_prompt_for_alive_player():
-    g = make(["imp", "poisoner", "fortune_teller", "butler", "chef", "saint", "ravenkeeper"])
+    g = make(["imp", "poisoner", "fortune_teller", "butler", "chef", "saint", "ravenkeeper"], dead_eyes=True)
     for x in g.players:
         if x.prompt and x.prompt["kind"] == "choose":
             assert "Storyteller" in x.prompt["text"], f"alive {x.name} should get a generic prompt"
@@ -675,7 +683,7 @@ def test_generic_prompt_for_alive_player():
 
 
 def test_ravenkeeper_dead_gets_specific_prompt():
-    g = make(["imp", "poisoner", "ravenkeeper", "empath", "chef", "saint", "mayor"])
+    g = make(["imp", "poisoner", "ravenkeeper", "empath", "chef", "saint", "mayor"], dead_eyes=True)
     to_night2(g)
     g.resolve(step(g, "imp"), [p(g, "Chen").pid])
     chen = p(g, "Chen")
@@ -684,7 +692,7 @@ def test_ravenkeeper_dead_gets_specific_prompt():
 
 
 def test_evil_info_reveals_team_not_specific_roles():
-    g = make(NINE)
+    g = make(NINE, dead_eyes=True)
     mi = step(g, "minion_info")
     g.resolve(mi, [])
     text = g.steps[mi]["suggestion"]
@@ -699,10 +707,138 @@ def test_evil_info_reveals_team_not_specific_roles():
 
 
 def test_game_over_reveals_all_characters():
-    g = make(NINE)
+    g = make(NINE, dead_eyes=True)
     alive_view = g.player_view(p(g, "Ema").token)["me"]
     assert alive_view["role"] is None
     g.declare_winner("good")
     over_view = g.player_view(p(g, "Ema").token)["me"]
     assert over_view["role"] is not None
     assert over_view["role"]["id"] == p(g, "Ema").character
+
+
+# --- standard variant ---
+
+def test_standard_mode_shows_role_to_alive_player():
+    g = make(NINE)
+    assert not g.dead_eyes
+    for x in g.players:
+        view = g.player_view(x.token)["me"]
+        assert view["role"] is not None, f"living {x.name} should see their role in standard mode"
+        assert view["role"]["id"] == x.believed
+
+
+def test_standard_mode_no_death_reveal_message():
+    g = make(NINE)
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Asha").pid)
+    g.record_votes(0, [x.pid for x in g.players[:5]])
+    g.end_day()
+    asha = p(g, "Asha")
+    assert not any("You were the" in m["text"] for m in asha.messages)
+
+
+def test_standard_mode_specific_prompts():
+    g = make(["imp", "poisoner", "fortune_teller", "butler", "chef", "saint", "ravenkeeper"])
+    for x in g.players:
+        if x.prompt and x.prompt["kind"] == "choose":
+            assert "Storyteller" not in x.prompt["text"], f"{x.name} should get a specific prompt"
+
+
+def test_standard_evil_info_reveals_specific_roles():
+    g = make(NINE)
+    mi = step(g, "minion_info")
+    g.resolve(mi, [])
+    text = g.steps[mi]["suggestion"]
+    assert "The Demon is" in text
+    assert "The Minions are" in text
+
+
+def test_set_variant_requires_lobby_or_setup():
+    g = make(NINE)
+    with pytest.raises(GameError, match="Not allowed"):
+        g.set_variant(True)
+
+
+def test_set_variant_toggles():
+    g = Game(random.Random(1))
+    for n in NAMES[:7]:
+        g.add_player(n)
+    assert not g.dead_eyes
+    g.set_variant(True)
+    assert g.dead_eyes
+    g.set_variant(False)
+    assert not g.dead_eyes
+
+
+def test_dead_eyes_in_public_view():
+    g = make(NINE, dead_eyes=True)
+    assert g.public_view()["dead_eyes"] is True
+    g2 = make(NINE)
+    assert g2.public_view()["dead_eyes"] is False
+
+
+# --- day timer ---
+
+def test_start_timer_during_day():
+    g = make(NINE)
+    g.start_day()
+    g.start_timer(5)
+    assert g.timer_end is not None
+    view = g.public_view()
+    assert view["timer"] is not None and view["timer"] > 0
+
+
+def test_timer_requires_day():
+    g = make(NINE)
+    with pytest.raises(GameError, match="Not allowed"):
+        g.start_timer(5)
+
+
+def test_timer_range():
+    g = make(NINE)
+    g.start_day()
+    with pytest.raises(GameError, match="between 1 and 15"):
+        g.start_timer(0)
+    with pytest.raises(GameError, match="between 1 and 15"):
+        g.start_timer(16)
+
+
+def test_stop_timer():
+    g = make(NINE)
+    g.start_day()
+    g.start_timer(5)
+    g.stop_timer()
+    assert g.timer_end is None
+    assert g.public_view()["timer"] is None
+
+
+def test_stop_timer_when_none():
+    g = make(NINE)
+    g.start_day()
+    with pytest.raises(GameError, match="No timer"):
+        g.stop_timer()
+
+
+def test_timer_fires_on_check():
+    g = make(NINE)
+    g.start_day()
+    g.timer_end = time.time() - 1
+    assert g.check_timer() is True
+    assert g.timer_end is None
+    assert any("Time is up" in a for a in g.announcements)
+
+
+def test_timer_clears_on_night():
+    g = make(NINE)
+    g.start_day()
+    g.start_timer(5)
+    g.end_day()
+    assert g.timer_end is None
+
+
+def test_timer_no_op_when_not_expired():
+    g = make(NINE)
+    g.start_day()
+    g.start_timer(10)
+    assert g.check_timer() is False
+    assert g.timer_end is not None
