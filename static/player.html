@@ -113,6 +113,10 @@
   .almanac dd { padding-left: calc(1.5em + 0.45rem); }
   .almanac dd { margin: 0; color: var(--on-felt-dim); font-size: var(--t-sm); }
   .err { color: #ffb4a8; margin-top: 0.6rem; }
+  .day-timer { text-align: center; margin: 1rem 0; padding: 0.8rem 1rem; border-radius: 12px; background: var(--felt-deep); border: 1px solid var(--felt-line); }
+  .day-timer .clock { font-family: var(--display); font-size: var(--t-3xl); color: var(--accent-text); }
+  .day-timer.expired .clock { color: var(--oxblood); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 </head>
 <body>
@@ -123,6 +127,7 @@ let token = localStorage.getItem("tb_token");
 let state = null, chars = {}, lastVersion = -1;
 let revealed = false, picks = [], error = "", seen = Number(localStorage.getItem("tb_seen") || 0), hideTimer = null, hideAt = 0, view = "character", heard = "", noteDraft = "", noteSent = false, tapError = "", tapSeq = [], tapKey = "";
 let lastBuzz = localStorage.getItem("tb_buzz");
+let timerEnd = null;
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const team = type => (type === "minion" || type === "demon") ? "evil" : "good";
@@ -156,7 +161,11 @@ async function poll() {
   }
   // re-rendering while typing would wipe the name field
   if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
-  if (!state || state.version !== lastVersion || error) { lastVersion = state?.version; render(); }
+  if (!state || state.version !== lastVersion || error) {
+    lastVersion = state?.version;
+    timerEnd = state?.timer != null ? Date.now() + state.timer * 1000 : null;
+    render();
+  }
 }
 
 async function join(ev) {
@@ -233,6 +242,22 @@ function tickHide() {
   if (e) e.textContent = Math.max(0, Math.ceil((hideAt - Date.now()) / 1000));
 }
 
+function tickDayTimer() {
+  const e = document.getElementById("day-clock");
+  if (!e || !timerEnd) return;
+  const left = Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
+  const mins = Math.floor(left / 60), secs = left % 60;
+  e.textContent = left > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : "Time's up!";
+  e.closest(".day-timer")?.classList.toggle("expired", left === 0);
+}
+
+function dayTimer(s) {
+  if (s.phase !== "day" || s.timer == null) return "";
+  return `<div class="day-timer${s.timer === 0 ? ' expired' : ''}"><div class="clock" id="day-clock">${
+    s.timer > 0 ? `${Math.floor(s.timer / 60)}:${(s.timer % 60).toString().padStart(2, '0')}` : "Time's up!"
+  }</div></div>`;
+}
+
 function show(v) {
   view = v;
   scrollTo(0, 0);
@@ -282,8 +307,10 @@ function hero(me) {
   if (!me.role) {
     const started = ["night", "day", "over"].includes(state.phase);
     const msg = started
-      ? "Your character is secret. You will learn who you were when you die."
-      : "Your character is dealt when the game starts";
+      ? (state.dead_eyes ? "Your character is secret. You will learn who you were when you die."
+                         : "Your character is dealt when the game starts")
+      : (state.dead_eyes ? "Dead Eyes Only: your character will be revealed when you die."
+                         : "Your character is dealt when the game starts");
     return `<div class="hero"><div class="token blank" style="--size:15rem"><span class="char">${msg}</span></div></div>`;
   }
   const r = me.role, t = team(r.type), c = tone(r.type);
@@ -368,13 +395,16 @@ function render() {
 
   let html = `<div class="top"><h1>Trouble Brewing</h1><div class="when">${esc(me.name)}${me.alive ? "" : ", dead"}<br>${when(s)}</div></div>`;
   if (s.winner) html += `<div class="verdict paper"><h2 class="${s.winner}-text">${s.winner === "good" ? "Good" : "Evil"} wins</h2><p>${esc(s.win_reason)}</p></div>`;
-  if (nudge) html += `<button class="call" onclick="flip()"><b>${s.phase === "night" ? `Night ${s.night}` : "Dawn"}</b>Everyone does this: shield your screen and check for instructions.</button>`;
+  if (nudge) html += `<button class="call" onclick="flip()"><b>${s.phase === "night" ? `Night ${s.night}` : "Dawn"}</b>${
+    s.dead_eyes ? "Everyone does this: shield your screen and check for instructions."
+                : "Everyone does this: shield your screen and open your token."}</button>`;
   if (error) html += `<p class="err">${esc(error)}</p>`;
 
   const news = JSON.stringify(s.announcements);
   if (view === "square") heard = news;
   if (view === "character") {
     html += hero(me);
+    if (s.phase === "day") html += dayTimer(s);
     if (revealed) {
       html += `<section><h2>From the Storyteller</h2>${prompt(s, me)}${
         me.messages.length ? me.messages.slice().reverse().map(m => `<div class="slip paper"><span class="when">${esc(m.label)}</span>${esc(m.text)}</div>`).join("")
@@ -382,7 +412,7 @@ function render() {
       if (me.notes) html += noteBox(me);
     }
   } else if (view === "square") {
-    html += `<section><h2>Town square</h2>${ring(s, me)}${counts}</section>`;
+    html += `<section><h2>Town square</h2>${dayTimer(s)}${ring(s, me)}${counts}</section>`;
     if (s.announcements.length) {
       html += `<section><h2>${s.phase === "day" ? "Today" : "Last heard"}</h2><ul class="crier">${s.announcements.map(a => `<li>${esc(a)}</li>`).join("")}</ul></section>`;
     }
@@ -399,7 +429,7 @@ function render() {
 api("/api/characters").then(c => { chars = c; render(); });
 poll();
 setInterval(poll, 1500);
-setInterval(tickHide, 1000);
+setInterval(() => { tickHide(); tickDayTimer(); }, 1000);
 </script>
 </body>
 </html>

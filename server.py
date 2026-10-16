@@ -33,8 +33,9 @@ STATIC = Path(__file__).parent / "static"
 # Game methods the Storyteller page may call as POST /api/st/<name>
 ST_ACTIONS = {
     "add_player", "remove_player", "move_player", "deal", "set_character", "set_setup", "start_game",
-    "ask", "resolve", "second_round", "send", "finish_step", "message", "start_day", "nominate", "record_votes",
-    "slayer_shot", "end_day", "read_inbox", "kill", "revive", "set_poisoned", "set_ghost_vote", "declare_winner", "reset",
+    "set_variant", "ask", "resolve", "second_round", "send", "finish_step", "message", "start_day",
+    "nominate", "record_votes", "slayer_shot", "end_day", "start_timer", "stop_timer",
+    "read_inbox", "kill", "revive", "set_poisoned", "set_ghost_vote", "declare_winner", "reset",
     "undo",
 }
 
@@ -43,10 +44,12 @@ ST_ACTIONS = {
 ACTION_LABELS = {
     "add_player": "Seat {body_name}", "remove_player": "Remove {name}", "move_player": "Move {name}",
     "deal": "Deal characters", "set_character": "Change {name}'s character", "set_setup": "Save red herring and bluffs",
-    "start_game": "Start the game", "ask": "Ask again", "resolve": "Work out a night step", "second_round": "Second buzz",
+    "start_game": "Start the game", "set_variant": "Change variant", "ask": "Ask again",
+    "resolve": "Work out a night step", "second_round": "Second buzz",
     "send": "Hold info for dawn", "finish_step": "Skip or reopen a night step", "message": "Message {name}",
     "start_day": "Start the day", "nominate": "Nomination", "record_votes": "Record votes", "slayer_shot": "Slayer shot",
-    "end_day": "End the day", "kill": "Kill {name}", "revive": "Bring back {name}", "set_poisoned": "Change poison",
+    "end_day": "End the day", "start_timer": "Start discussion timer", "stop_timer": "Stop discussion timer",
+    "kill": "Kill {name}", "revive": "Bring back {name}", "set_poisoned": "Change poison",
     "set_ghost_vote": "Change {name}'s ghost vote", "declare_winner": "End the game", "reset": "Reset to the lobby",
 }
 # not undoable: marking notes read, and undo itself
@@ -140,6 +143,8 @@ def create_app(game: Game, st_key: str, join_url: str) -> FastAPI:
     @app.get("/api/state")
     def state(token: str = "") -> dict:
         with lock:
+            if game.check_timer():
+                game.version += 1
             return game.player_view(token) if token else game.public_view()
 
     @app.post("/api/join")
@@ -176,6 +181,8 @@ def create_app(game: Game, st_key: str, join_url: str) -> FastAPI:
     def st_view(key: str = "") -> dict:
         with lock:
             check_key(key)
+            if game.check_timer():
+                game.version += 1
             return st_state()
 
     @app.post("/api/st/{action}")
