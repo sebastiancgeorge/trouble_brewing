@@ -435,11 +435,22 @@ class Game:
         return all(self.get(pid).alive for pid in step["pids"])
 
     def ask(self, step: int) -> None:
-        """Push a step's choice prompt to the woken player's phone."""
+        """Push a step's choice prompt to the woken player's phone.
+
+        Dead Eyes Only: living players see a generic prompt that does not reveal their character;
+        dead players (e.g. the Ravenkeeper) already know their role and see the specific prompt.
+        """
         s = self._step(step)
         if not s["choose"]:
             raise GameError("This step has no choice to make")
-        self.get(s["pids"][0]).prompt = {"kind": "choose", "text": s["prompt"], "count": s["choose"],
+        player = self.get(s["pids"][0])
+        if player.alive:
+            n = s["choose"]
+            text = (f"The Storyteller needs you to choose "
+                    f"{'two players' if n == 2 else 'another player' if not s['allow_self'] else 'a player'}.")
+        else:
+            text = s["prompt"]
+        player.prompt = {"kind": "choose", "text": text, "count": s["choose"],
                                          "allow_self": s["allow_self"], "answer": None, "step": step}
         s["answer"] = None
 
@@ -737,12 +748,26 @@ class Game:
     # --- deaths and wins ---
 
     def _die(self, p: Player, cause: str) -> None:
-        """Kill a player: ends Poisoner's poison, may promote the Scarlet Woman, then checks for a win."""
+        """Kill a player: ends Poisoner's poison, may promote the Scarlet Woman, then checks for a win.
+
+        Dead Eyes Only: the dying player is privately shown their true character token.
+        """
         if not p.alive:
             return
         alive_before = self.alive_count()
         p.alive = False
         self._log(f"{p.name} ({info.char_name(p.character)}) dies: {cause}")
+        # Dead Eyes Only: reveal the player's true character
+        char = CHARACTERS[p.character]
+        team_name = "evil" if char["type"] in (MINION, DEMON) else "good"
+        reveal = f"You were the {char['name']} ({char['type'].title()}, {team_name} team)."
+        if p.character == "drunk" and p.believed:
+            reveal += (f" You believed you were the {info.char_name(p.believed)},"
+                       f" but your ability did not work.")
+        if self.phase == "night":
+            self._notify(p.pid, reveal)
+        else:
+            p.messages.append({"label": self._stamp(), "text": reveal})
         if p.character == "poisoner":
             self.poisoned = None
         if self._type_of(p) == DEMON and not self._alive_demon() and alive_before >= 5:
@@ -884,12 +909,23 @@ class Game:
         return p.alive or (self.phase == "night" and p.pid in self.night_deaths)
 
     def player_view(self, token: str) -> dict:
-        """Public view plus the player's own role (as they believe it), messages and prompt."""
+        """Public view plus the player's own role, messages and prompt.
+
+        Dead Eyes Only: living players do not see their character. Dead players see their true
+        character (not what they believed). Everyone sees all characters when the game is over.
+        """
         p = self.by_token(token)
         started = self.phase in ("night", "day", "over")
+        over = self.phase == "over"
+        if over:
+            role = {"id": p.character, **CHARACTERS[p.character]} if p.character else None
+        elif started and not p.alive:
+            role = {"id": p.character, **CHARACTERS[p.character]} if p.character else None
+        else:
+            role = None
         return {**self.public_view(), "me": {
             "pid": p.pid, "name": p.name, "alive": self._publicly_alive(p),
-            "role": {"id": p.believed, **CHARACTERS[p.believed]} if started and p.believed else None,
+            "role": role,
             "messages": p.messages, "prompt": p.prompt,
             "notes": [{"text": n["text"], "label": n["label"]} for n in self.inbox if n["pid"] == p.pid],
         }}

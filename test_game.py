@@ -6,7 +6,7 @@ import pytest
 
 import info
 from game import Game, GameError
-from roles import CHARACTERS, is_good
+from roles import CHARACTERS, NIGHT_CHOICES, is_good
 
 NAMES = ["Asha", "Ben", "Chen", "Dev", "Ema", "Finn", "Gita", "Hari", "Ines"]
 
@@ -50,12 +50,14 @@ def test_first_night_order_and_evil_info():
     g = make(NINE)
     assert [s["key"] for s in g.steps] == ["minion_info", "demon_info", "empath"]
     g.resolve(0, [])
-    assert "The Demon is Asha" in g.steps[0]["suggestion"]
+    assert "You are a Minion" in g.steps[0]["suggestion"]
+    assert "Asha" in g.steps[0]["suggestion"]
 
 
-def test_small_game_skips_evil_info():
+def test_small_game_includes_evil_info():
     g = make(["imp", "poisoner", "empath", "chef", "saint"])
-    assert "minion_info" not in [s["key"] for s in g.steps]
+    assert "minion_info" in [s["key"] for s in g.steps]
+    assert "demon_info" in [s["key"] for s in g.steps]
 
 
 def test_monk_protects_and_soldier_survives():
@@ -600,3 +602,107 @@ def test_night_kill_does_not_move_public_threshold():
     assert g.public_view()["threshold"] == before
     g.start_day()
     assert g.public_view()["threshold"] == g.threshold()
+
+
+# --- Dead Eyes Only ---
+
+def test_alive_player_view_hides_role():
+    g = make(NINE)
+    for x in g.players:
+        view = g.player_view(x.token)["me"]
+        assert view["role"] is None, f"living {x.name} should not see their role"
+
+
+def test_dead_player_view_reveals_true_character():
+    g = make(NINE)
+    to_night2(g)
+    g.resolve(step(g, "imp"), [p(g, "Ema").pid])
+    ema = p(g, "Ema")
+    view = g.player_view(ema.token)["me"]
+    assert view["role"] is not None, "dead player should see their role"
+    assert view["role"]["id"] == ema.character, "dead player should see their TRUE character"
+
+
+def test_drunk_death_reveals_drunk_not_believed():
+    g = _setup(["imp", "poisoner", "drunk", "empath", "chef", "saint", "mayor"])
+    g.set_character(g.players[2].pid, "drunk", believed="monk")
+    held = {x for pl in g.players for x in (pl.character, pl.believed)}
+    g.bluffs = [c for c in CHARACTERS if is_good(c) and c not in held][:3]
+    g.start_game()
+    g.start_day()
+    g.nominate(p(g, "Dev").pid, p(g, "Chen").pid)
+    g.record_votes(0, [x.pid for x in g.players[:4]])
+    g.end_day()
+    chen = p(g, "Chen")
+    view = g.player_view(chen.token)["me"]
+    assert view["role"]["id"] == "drunk", "dead Drunk should see 'drunk', not their believed character"
+    death_msg = next(m for m in chen.messages if "You were the" in m["text"])
+    assert "Drunk" in death_msg["text"]
+    assert "Monk" in death_msg["text"], "death reveal should mention the believed character"
+
+
+def test_death_reveal_on_execution():
+    g = make(NINE)
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Asha").pid)
+    g.record_votes(0, [x.pid for x in g.players[:5]])
+    g.end_day()
+    asha = p(g, "Asha")
+    death_msg = next(m for m in asha.messages if "You were the" in m["text"])
+    assert "Imp" in death_msg["text"]
+    assert "evil" in death_msg["text"]
+
+
+def test_death_reveal_on_night_kill_arrives_at_dawn():
+    g = make(NINE)
+    to_night2(g)
+    g.resolve(step(g, "imp"), [p(g, "Ema").pid])
+    ema = p(g, "Ema")
+    assert not any("You were the" in m["text"] for m in ema.messages), "night reveal should be held"
+    g.start_day()
+    death_msg = next(m for m in ema.messages if "You were the" in m["text"])
+    assert "Empath" in death_msg["text"]
+    assert "good" in death_msg["text"]
+
+
+def test_generic_prompt_for_alive_player():
+    g = make(["imp", "poisoner", "fortune_teller", "butler", "chef", "saint", "ravenkeeper"])
+    for x in g.players:
+        if x.prompt and x.prompt["kind"] == "choose":
+            assert "Storyteller" in x.prompt["text"], f"alive {x.name} should get a generic prompt"
+            assert x.prompt["text"] != NIGHT_CHOICES.get(x.believed, (0, True, ""))[2], \
+                f"alive {x.name}'s prompt should not reveal their ability"
+
+
+def test_ravenkeeper_dead_gets_specific_prompt():
+    g = make(["imp", "poisoner", "ravenkeeper", "empath", "chef", "saint", "mayor"])
+    to_night2(g)
+    g.resolve(step(g, "imp"), [p(g, "Chen").pid])
+    chen = p(g, "Chen")
+    assert chen.prompt and chen.prompt["kind"] == "choose"
+    assert "died tonight" in chen.prompt["text"], "dead Ravenkeeper should get the specific prompt"
+
+
+def test_evil_info_reveals_team_not_specific_roles():
+    g = make(NINE)
+    mi = step(g, "minion_info")
+    g.resolve(mi, [])
+    text = g.steps[mi]["suggestion"]
+    assert "You are a Minion" in text
+    assert "Asha" in text, "evil meeting should list the Demon's player name"
+    assert "Imp" not in text, "evil meeting should not reveal specific role names"
+    di = step(g, "demon_info")
+    g.resolve(di, [])
+    text = g.steps[di]["suggestion"]
+    assert "You are the Demon" in text
+    assert "bluffs" in text.lower()
+
+
+def test_game_over_reveals_all_characters():
+    g = make(NINE)
+    alive_view = g.player_view(p(g, "Ema").token)["me"]
+    assert alive_view["role"] is None
+    g.declare_winner("good")
+    over_view = g.player_view(p(g, "Ema").token)["me"]
+    assert over_view["role"] is not None
+    assert over_view["role"]["id"] == p(g, "Ema").character

@@ -131,20 +131,20 @@ const dirty = {};       // element id -> value typed but not yet submitted
 const voteDraft = {};   // nomination index -> Set of pids
 
 const HINTS = {
-  minion_info: "Wake every Minion together and point out the Demon.",
-  demon_info: "Wake the Demon, point out their Minions, show the three bluffs.",
-  poisoner: "Their pick is poisoned tonight and tomorrow.",
-  washerwoman: "One Townsfolk and two players. A Spy may register as Townsfolk.",
-  librarian: "One Outsider and two players. A Spy may register as an Outsider.",
-  investigator: "One Minion and two players. The Recluse may register as a Minion.",
+  minion_info: "Wake all evil players together. Each Minion learns they are a Minion and sees who else is evil. They do not learn their specific Minion role.",
+  demon_info: "The Demon learns they are the Demon, sees who else is evil, and receives the three bluffs. They do not learn the Minions' specific roles.",
+  poisoner: "Their pick is poisoned tonight and tomorrow. The player does not know they are the Poisoner.",
+  washerwoman: "One Townsfolk and two players. A Spy may register as Townsfolk. The player does not know which ability this is.",
+  librarian: "One Outsider and two players. A Spy may register as an Outsider. The player does not know which ability this is.",
+  investigator: "One Minion and two players. The Recluse may register as a Minion. The player does not know which ability this is.",
   chef: "Adjacent evil pairs. A Spy may register good, the Recluse evil.",
   empath: "Evil living neighbours. A Spy may register good, the Recluse evil.",
   fortune_teller: "Yes if either pick is the Demon or the red herring. The Recluse may register as the Demon.",
-  butler: "Their pick is their Master tomorrow.",
-  spy: "Show them the grimoire.",
-  monk: "Their pick cannot be killed by the Demon tonight.",
-  imp: "Picking themselves passes the Imp to a Minion. An attack on the Mayor may land elsewhere. Applying this starts the second round.",
-  ravenkeeper: "Only if they died tonight. They pick during the second round and learn that character at dawn.",
+  butler: "Their pick is their Master tomorrow. The player does not know which ability this is.",
+  spy: "Show them the grimoire. The player does not know they are the Spy.",
+  monk: "Their pick cannot be killed by the Demon tonight. The player does not know which ability this is.",
+  imp: "Picking themselves passes the Imp to a Minion. An attack on the Mayor may land elsewhere. Applying this starts the second round. The player does not know they are the Imp.",
+  ravenkeeper: "Only if they died tonight. They now know they are the Ravenkeeper (dead eyes reveal). They pick during the second round and learn that character at dawn.",
   undertaker: "Only if someone was executed today. Sent automatically at dawn unless you send or skip it first.",
 };
 
@@ -422,7 +422,7 @@ function setup() {
   const plural = {townsfolk: "Townsfolk", outsider: "Outsiders", minion: "Minions", demon: "Demon"};
   const counts = types.map(t => `${S.players.filter(p => C[p.character]?.type === t).length} ${plural[t]}`).join(", ");
   return `<h2>Check the deal</h2>
-    <p class="lede">${counts}. Tap any token to swap its character. Nobody sees anything until you start.</p>
+    <p class="lede">${counts}. Tap any token to swap its character. Dead Eyes Only: players never see their character until they die.</p>
     ${S.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("")}
     <label class="field"><span>Fortune Teller's red herring</span><select id="rh">${playerOpts(p => team(p.character) === "good", S.red_herring)}</select></label>
     <div class="field"><span>Demon bluffs: good characters nobody holds</span><div class="line">${[0, 1, 2].map(i => `<select id="bluff-${i}" aria-label="Bluff ${i + 1}">${bluffOpts(S.bluffs[i])}</select>`).join("")}</div>
@@ -478,13 +478,13 @@ function night() {
       : `<p class="note">Applying the Imp's kill buzzes every phone again, and a Ravenkeeper killed tonight gets their prompt. The second round happens every night so it gives nothing away.</p>
          ${waitNote}<button class="btn quiet small" ${blocked} onclick="act('second_round')">Buzz every phone now</button>`}` : "";
   return `<h2>Night ${S.night}</h2>
-    <p class="lede">Every phone has buzzed. Players with a choice are picking; everyone else has a short icon challenge. Work down the list as their picks arrive.</p>
+    <p class="lede">Every phone has buzzed. Dead Eyes Only: players see generic prompts that do not reveal their character. The Storyteller communicates each ability's purpose. Work down the list as their picks arrive.</p>
     ${S.phones.length ? `<div class="phones"><p class="note"><span class="answer">${S.phones_done[0]} of ${S.phones_done[1]} phones done.</span> The second buzz and dawn wait for everyone.</p>
       <ul>${S.phones.map(x => `<li class="${x.done ? "done" : ""}">${x.done ? "&#10003; " : ""}${esc(x.name)}</li>`).join("")}</ul></div>` : ""}
     ${S.steps.length ? `<ol class="order">${S.steps.map((s, i) => stepItem(s, i, cur)).join("")}</ol>` : `<p class="note">Nobody has anything to do tonight.</p>`}
     ${round2}
     <h3>Dawn</h3>
-    <p class="note">${deaths.length ? `${esc(deaths.join(" and "))} will be announced dead.` : "Nobody has died tonight."}
+    <p class="note">${deaths.length ? `${esc(deaths.join(" and "))} will be announced dead and privately shown their character.` : "Nobody has died tonight."}
       ${held ? `${held} ${held === 1 ? "message is" : "messages are"} held for dawn.` : ""} Everyone else gets "Nothing to report tonight."</p>
     ${waitNote}<button class="btn" ${blocked} onclick="openStep = null; act('start_day')">Deliver everything and start day ${S.day + 1}</button>`;
 }
@@ -527,7 +527,7 @@ function day() {
 
 function over() {
   return `<h2 class="verdict ${S.winner}-text">${S.winner === "good" ? "Good" : "Evil"} wins</h2>
-    <p class="lede">${esc(S.win_reason)} Every character is now revealed on players' phones.</p>
+    <p class="lede">${esc(S.win_reason)} Every character is now revealed on players' phones — living players finally learn who they were.</p>
     <button class="btn" onclick="selected = null; act('reset')">New game, same players</button>`;
 }
 

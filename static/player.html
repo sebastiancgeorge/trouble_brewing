@@ -280,7 +280,11 @@ function joinScreen() {
 
 function hero(me) {
   if (!me.role) {
-    return `<div class="hero"><div class="token blank" style="--size:15rem"><span class="char">Your character is dealt when the game starts</span></div></div>`;
+    const started = ["night", "day", "over"].includes(state.phase);
+    const msg = started
+      ? "Your character is secret. You will learn who you were when you die."
+      : "Your character is dealt when the game starts";
+    return `<div class="hero"><div class="token blank" style="--size:15rem"><span class="char">${msg}</span></div></div>`;
   }
   const r = me.role, t = team(r.type), c = tone(r.type);
   return `<div class="hero">
@@ -364,7 +368,7 @@ function render() {
 
   let html = `<div class="top"><h1>Trouble Brewing</h1><div class="when">${esc(me.name)}${me.alive ? "" : ", dead"}<br>${when(s)}</div></div>`;
   if (s.winner) html += `<div class="verdict paper"><h2 class="${s.winner}-text">${s.winner === "good" ? "Good" : "Evil"} wins</h2><p>${esc(s.win_reason)}</p></div>`;
-  if (nudge) html += `<button class="call" onclick="flip()"><b>${s.phase === "night" ? `Night ${s.night}` : "Dawn"}</b>Everyone does this: shield your screen and open your token.</button>`;
+  if (nudge) html += `<button class="call" onclick="flip()"><b>${s.phase === "night" ? `Night ${s.night}` : "Dawn"}</b>Everyone does this: shield your screen and check for instructions.</button>`;
   if (error) html += `<p class="err">${esc(error)}</p>`;
 
   const news = JSON.stringify(s.announcements);
