@@ -343,16 +343,21 @@ class Game:
         """Buzz every phone again (nights 2+); the Ravenkeeper gets their prompt only if killed tonight.
 
         Runs every night regardless, so the second buzz never reveals that a Ravenkeeper died.
+        A second round of tap tasks goes out only when a Ravenkeeper (or a Drunk who believes
+        they are one) was killed tonight and is picking, so everyone is busy while they pick.
         """
         self._require("night")
         if self.second_round_done:
             return
         self._require_phones_done("the second buzz")
         self.second_round_done = True
+        raven_picks = False
         for i, s in enumerate(self.steps):
             if s["key"] == "ravenkeeper" and self.step_applies(s):
                 self.ask(i)
-        self._hand_out_tap_tasks()
+                raven_picks = True
+        if raven_picks:
+            self._hand_out_tap_tasks()
         self.buzz += 1
         self._log("Second round: every phone buzzes")
 

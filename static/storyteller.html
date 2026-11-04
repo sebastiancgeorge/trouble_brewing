@@ -513,7 +513,7 @@ function night() {
   const round2 = S.night > 1 ? `<h3>Second round</h3>
     ${S.second_round_done
       ? `<p class="note">Every phone has buzzed a second time.</p>`
-      : `<p class="note">Applying the Imp's kill buzzes every phone again, and a Ravenkeeper killed tonight gets their prompt. The second round happens every night so it gives nothing away.</p>
+      : `<p class="note">Applying the Imp's kill buzzes every phone again, and a Ravenkeeper killed tonight gets their prompt. If the Ravenkeeper was killed, everyone else gets a second icon challenge while they pick. The second round happens every night so it gives nothing away.</p>
          ${waitNote}<button class="btn quiet small" ${blocked} onclick="act('second_round')">Buzz every phone now</button>`}` : "";
   return `<h2>Night ${S.night}</h2>
     <p class="lede">Every phone has buzzed. ${S.dead_eyes ? "Dead Eyes Only: players see generic prompts that do not reveal their character." : "Players with a choice are picking; everyone else has a short icon challenge."} Work down the list as their picks arrive.</p>
