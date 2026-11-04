@@ -5,6 +5,8 @@ CHARACTERS schema: dict[str, dict] keyed by character id (snake_case), each valu
     type     (str) one of TOWNSFOLK / OUTSIDER / MINION / DEMON
     summary  (str) one-line ability summary
     ability  (str) full ability text shown to the holder
+    timing   (str) when the ability acts, e.g. "Every night except the first"
+    flavour  (str) in-world quote shown in the almanac
 
 SETUP_COUNTS schema: dict[int, tuple[int, int, int, int]]
     player count -> (townsfolk, outsiders, minions, demons), before the Baron's adjustment.
@@ -22,6 +24,8 @@ CHARACTERS = {
         "summary": "Learns that one of two players is a specific Townsfolk.",
         "ability": "On the first night, you are shown a Townsfolk character, then shown two players. "
                    "One of those two players is that character.",
+        "timing": "First night only",
+        "flavour": "I've done his laundry for years — I know his habits better than he does.",
     },
     "librarian": {
         "name": "Librarian", "type": TOWNSFOLK,
@@ -29,12 +33,16 @@ CHARACTERS = {
         "ability": "On the first night, you are shown an Outsider character, then shown two players. "
                    "One of those two players is that character - or, if there are no Outsiders in this "
                    "game, you are told that instead.",
+        "timing": "First night only",
+        "flavour": "The card catalogue never lies. The people who read it, on the other hand...",
     },
     "investigator": {
         "name": "Investigator", "type": TOWNSFOLK,
         "summary": "Learns that one of two players is a specific Minion.",
         "ability": "On the first night, you are shown a Minion character, then shown two players. "
                    "One of those two players is that character.",
+        "timing": "First night only",
+        "flavour": "Somewhere in this town, someone is lying to everyone they know.",
     },
     "chef": {
         "name": "Chef", "type": TOWNSFOLK,
@@ -42,82 +50,114 @@ CHARACTERS = {
         "ability": "On the first night, you learn how many pairs of evil players there are. A pair is two "
                    "evil players seated directly beside one another; three evil players in a row counts "
                    "as two pairs.",
+        "timing": "First night only",
+        "flavour": "You can tell a lot about two people by whether they'll sit next to each other.",
     },
     "empath": {
         "name": "Empath", "type": TOWNSFOLK,
         "summary": "Learns how many of their living neighbours are evil.",
         "ability": "Every night, you learn how many of your two living neighbours are evil. Your neighbours "
-                   "are the nearest living players seated to your left and right.",
+                   "are the nearest living players seated to your left and right - this can change as "
+                   "players die during the game.",
+        "timing": "Every night",
+        "flavour": "I don't need to hear a confession. I can just feel it, sitting this close.",
     },
     "fortune_teller": {
         "name": "Fortune Teller", "type": TOWNSFOLK,
         "summary": "Each night, checks two players for the Demon.",
         "ability": "Every night, choose two players - you learn whether either of them is the Demon. "
-                   "One good player always registers as the Demon to you.",
+                   "At the start of the game, the Storyteller secretly chooses one good player who will always "
+                   "register as the Demon to you, for the rest of the game.",
+        "timing": "Every night",
+        "flavour": "The cards show me many things. Some of them, I suspect, are lies too.",
     },
     "undertaker": {
         "name": "Undertaker", "type": TOWNSFOLK,
         "summary": "Learns the character of whoever was executed that day.",
         "ability": "Every night except the first, if a player was executed that day, you learn their character.",
+        "timing": "Every night, if an execution happened",
+        "flavour": "By the time they reach me, everyone tells the truth.",
     },
     "monk": {
         "name": "Monk", "type": TOWNSFOLK,
         "summary": "Protects one player from the Demon each night.",
         "ability": "Every night except the first, choose a player other than yourself. They cannot be "
                    "killed by the Demon that night.",
+        "timing": "Every night except the first",
+        "flavour": "Vigilance is a form of devotion.",
     },
     "ravenkeeper": {
         "name": "Ravenkeeper", "type": TOWNSFOLK,
         "summary": "If killed at night, learns one player's character.",
         "ability": "If you are killed during the night, you wake immediately to choose a player, and you "
                    "learn their character.",
+        "timing": "Triggered on death at night",
+        "flavour": "Even in my last moment, I'll know something you don't.",
     },
     "virgin": {
         "name": "Virgin", "type": TOWNSFOLK,
         "summary": "The first Townsfolk to nominate them is executed instantly.",
         "ability": "The first time you are nominated, if your nominator is a Townsfolk, they are executed "
                    "immediately. Your ability is spent on that first nomination, whatever the outcome.",
+        "timing": "Triggered on nomination",
+        "flavour": "They should have asked someone else first.",
     },
     "slayer": {
         "name": "Slayer", "type": TOWNSFOLK,
         "summary": "Once per game, can publicly attempt to kill the Demon.",
         "ability": "Once per game, during the day, publicly choose a player. If they are the Demon, they die. "
-                   "Your ability is spent either way.",
+                   "Your ability is spent either way, whether or not you chose correctly.",
+        "timing": "Once per game, during the day",
+        "flavour": "One shot. I intend to make it count.",
     },
     "soldier": {
         "name": "Soldier", "type": TOWNSFOLK,
         "summary": "Cannot be killed by the Demon.",
-        "ability": "You cannot be killed by the Demon. You can still be executed, and killed by other means.",
+        "ability": "You cannot be killed by the Demon. You can still be executed, and you can still be "
+                   "killed by other means.",
+        "timing": "Always active",
+        "flavour": "I've survived worse nights than this.",
     },
     "mayor": {
         "name": "Mayor", "type": TOWNSFOLK,
         "summary": "May win the game outright, and may survive the Demon's attack.",
         "ability": "If only three players are alive and no execution happens that day, your team wins. If the "
                    "Demon tries to kill you at night, the Storyteller may choose for a different player to die instead.",
+        "timing": "Always active / triggered",
+        "flavour": "This town survives because I refuse to let it fall.",
     },
     # --- outsiders ---
     "butler": {
         "name": "Butler", "type": OUTSIDER,
         "summary": "Can only vote when their chosen Master also votes.",
         "ability": "Every night, choose another player to be your Master for the next day. The next day, you may "
-                   "only vote on a nomination if your Master also votes on it. You may still nominate freely.",
+                   "only vote on a nomination if your Master also votes on it. You may still nominate freely - the restriction "
+                   "is only on voting.",
+        "timing": "Every night",
+        "flavour": "I go where I'm told. It's simpler that way.",
     },
     "drunk": {
         "name": "Drunk", "type": OUTSIDER,
         "summary": "Believes they're a Townsfolk, but their ability doesn't work.",
-        "ability": "You do not know you are the Drunk. You believe you are a specific Townsfolk, but that "
-                   "ability does not work, and anything it seems to tell you may be false.",
+        "ability": "You do not know you are the Drunk. You believe you are a specific Townsfolk character, and you "
+                   "play the game thinking that is who you are - but that character's ability does not work, and anything it seems to tell you may be false.",
+        "timing": "Always active",
+        "flavour": "Of course I remember what I saw last night. Mostly.",
     },
     "recluse": {
         "name": "Recluse", "type": OUTSIDER,
         "summary": "May appear evil to other players' abilities.",
         "ability": "You may appear evil, and even as a specific Minion or Demon, to other players' abilities, "
-                   "even though you are good.",
+                   "even though you are good. This may happen or not happen each time.",
+        "timing": "Always active",
+        "flavour": "They watch me from a distance and assume the worst. Good.",
     },
     "saint": {
         "name": "Saint", "type": OUTSIDER,
         "summary": "If executed, good instantly loses the game.",
         "ability": "If you are executed, your team loses the game immediately. Dying any other way is harmless.",
+        "timing": "Triggered on execution",
+        "flavour": "Be certain before you point that finger at me.",
     },
     # --- minions ---
     "poisoner": {
@@ -125,22 +165,31 @@ CHARACTERS = {
         "summary": "Each night, makes one player's ability malfunction.",
         "ability": "Every night, choose a player. Their ability malfunctions for the rest of that night and the "
                    "following day - anything they learn may be false, and they will not be told.",
+        "timing": "Every night",
+        "flavour": "A single drop, and their certainty becomes doubt.",
     },
     "spy": {
         "name": "Spy", "type": MINION,
         "summary": "Sees the full truth of every player, every night.",
-        "ability": "Every night, you see the Grimoire. You may also appear as good, and as a specific Townsfolk "
+        "ability": "Every night, you may look at the Grimoire - the Storyteller's private book that shows "
+                   "everyone's character and current status. You may also appear as good, and as a specific Townsfolk "
                    "or Outsider, to other players' abilities.",
+        "timing": "Every night",
+        "flavour": "I already know your secret. I'm just deciding what to do with it.",
     },
     "scarlet_woman": {
         "name": "Scarlet Woman", "type": MINION,
         "summary": "May inherit the Demon's power if it dies.",
         "ability": "If the Demon dies while five or more players are alive, you become the new Demon.",
+        "timing": "Triggered if the Demon dies",
+        "flavour": "Someone has to carry on the work.",
     },
     "baron": {
         "name": "Baron", "type": MINION,
         "summary": "Adds extra Outsiders to the game.",
         "ability": "There are two extra Outsiders in this game, in place of two Townsfolk.",
+        "timing": "Setup only",
+        "flavour": "Chaos is so much easier to fund than order.",
     },
     # --- demon ---
     "imp": {
@@ -148,6 +197,8 @@ CHARACTERS = {
         "summary": "Kills a player each night - and can pass on the role.",
         "ability": "Every night except the first, choose a player to kill. You may choose yourself instead - "
                    "if you do, a Minion becomes the new Imp.",
+        "timing": "Every night except the first",
+        "flavour": "This body was never the point. The hunger is.",
     },
 }
 
