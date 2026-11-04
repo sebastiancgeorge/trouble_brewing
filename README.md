@@ -30,7 +30,9 @@ If phones cannot connect, allow incoming connections for Python in the laptop's 
    seated without a phone are not waited for). Work down the ledger in
    order: *Apply their pick* / *Work out their info* (the truthful answer is filled in), edit if they
    are drunk or poisoned, then *Hold until dawn*. Applying the Imp's kill buzzes every phone a second
-   time; a Ravenkeeper killed tonight picks then. Kills, Monk, Soldier, Mayor, star-pass and Scarlet
+   time; a Ravenkeeper killed tonight picks then. When the Ravenkeeper (or a Drunk who believes they
+   are one) was killed tonight, everyone else gets a second tap challenge while they pick; otherwise
+   each player taps once a night. Kills, Monk, Soldier, Mayor, star-pass and Scarlet
    Woman are handled automatically.
    At dawn every phone buzzes and every player gets a slip: their info, or "Nothing to report tonight".
 4. **Day**: record nominations and tap who voted. Virgin, Slayer, Saint, ghost votes, ties and the

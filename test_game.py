@@ -259,6 +259,30 @@ def test_second_round_buzzes_even_when_ravenkeeper_survives():
     before = g.buzz
     g.resolve(step(g, "imp"), [p(g, "Dev").pid])
     assert g.buzz == before + 1 and p(g, "Chen").prompt["kind"] == "tap"
+    assert p(g, "Chen").prompt["answer"], "a living Ravenkeeper means no second tap"
+    assert g.phones_waiting() == []
+
+
+def test_second_round_taps_cover_a_dead_ravenkeepers_pick():
+    g = make(["imp", "poisoner", "ravenkeeper", "empath", "chef", "saint", "mayor"], phones=True)
+    finish_phones(g)
+    to_night2(g)
+    finish_phones(g)
+    g.resolve(step(g, "imp"), [p(g, "Chen").pid])
+    assert p(g, "Chen").prompt["kind"] == "choose"
+    others = [x for x in g.players if x.name != "Chen"]
+    assert all(x.prompt["kind"] == "tap" and x.prompt["answer"] is None for x in others)
+
+
+def test_drunk_believing_ravenkeeper_killed_gets_second_taps():
+    g = make(["imp", "poisoner", "drunk", "empath", "chef", "saint", "mayor"], phones=True)
+    p(g, "Chen").believed = "ravenkeeper"
+    finish_phones(g)
+    to_night2(g)
+    finish_phones(g)
+    g.resolve(step(g, "imp"), [p(g, "Chen").pid])
+    assert p(g, "Chen").prompt["kind"] == "choose"
+    assert p(g, "Ema").prompt["kind"] == "tap" and p(g, "Ema").prompt["answer"] is None
 
 
 def test_star_pass_news_waits_for_dawn():
@@ -467,7 +491,7 @@ def test_second_buzz_waits_for_every_phone():
     assert g.second_round_done and not p(g, "Ema").alive
 
 
-def test_second_round_taps_keep_earlier_answers_and_skip_known_dead():
+def test_second_round_hands_out_no_new_taps():
     g = make(["imp", "poisoner", "fortune_teller", "empath", "chef", "saint", "mayor"], phones=True)
     finish_phones(g)
     g.start_day()
@@ -478,9 +502,12 @@ def test_second_round_taps_keep_earlier_answers_and_skip_known_dead():
     g.choose(chen.token, [p(g, "Asha").pid, p(g, "Dev").pid])
     finish_phones(g)
     g.resolve(step(g, "imp"), [p(g, "Ema").pid])
-    assert chen.prompt["kind"] == "tap"
+    assert chen.prompt["kind"] == "choose" and chen.prompt["answer"], "a finished pick is not replaced by a tap"
     assert g.storyteller_view()["steps"][step(g, "fortune_teller")]["answer"] == [p(g, "Asha").pid, p(g, "Dev").pid]
-    assert p(g, "Ema").prompt["kind"] == "tap" and p(g, "Finn").prompt is None
+    ema = p(g, "Ema").prompt
+    assert ema["kind"] == "tap" and ema["answer"], "the nightfall tap stays done, no second one"
+    assert p(g, "Finn").prompt is None
+    assert g.phones_waiting() == []
 
 
 def test_unanswered_real_choice_survives_second_round():
