@@ -33,7 +33,7 @@ STATIC = Path(__file__).parent / "static"
 # Game methods the Storyteller page may call as POST /api/st/<name>
 ST_ACTIONS = {
     "add_player", "remove_player", "move_player", "deal", "set_character", "set_setup", "start_game",
-    "set_variant", "set_script", "set_gossip", "moonchild_pick", "ask", "resolve", "second_round", "send", "finish_step", "message", "start_day",
+    "set_variant", "set_script", "skip_tap", "set_gossip", "moonchild_pick", "ask", "resolve", "second_round", "send", "finish_step", "message", "start_day",
     "nominate", "record_votes", "slayer_shot", "end_day", "start_timer", "stop_timer",
     "read_inbox", "kill", "revive", "set_poisoned", "set_ghost_vote", "declare_winner", "reset",
     "undo",
@@ -44,7 +44,7 @@ ST_ACTIONS = {
 ACTION_LABELS = {
     "add_player": "Seat {body_name}", "remove_player": "Remove {name}", "move_player": "Move {name}",
     "deal": "Deal characters", "set_character": "Change {name}'s character", "set_setup": "Save setup choices",
-    "start_game": "Start the game", "set_variant": "Change variant", "set_script": "Change script",
+    "start_game": "Start the game", "set_variant": "Change variant", "set_script": "Change script", "skip_tap": "Skip a tap challenge",
     "set_gossip": "Rule on the Gossip", "moonchild_pick": "Moonchild's choice", "ask": "Ask again",
     "resolve": "Work out a night step", "second_round": "Second buzz",
     "send": "Hold info for dawn", "finish_step": "Skip or reopen a night step", "message": "Message {name}",

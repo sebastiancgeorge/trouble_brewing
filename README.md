@@ -28,7 +28,8 @@ If phones cannot connect, allow incoming connections for Python in the laptop's 
    automatically; everyone else gets a tap challenge (tap three character icons in the order shown), so
    every player taps and real choices do not stand out. The ledger shows which phones are still going;
    the second buzz and dawn are refused until every living player with a phone has finished (players
-   seated without a phone are not waited for). Work down the ledger in
+   seated without a phone are not waited for). If someone's phone is stuck, tap **skip** next to their
+   name (or skip every unfinished challenge at once); their phone shows the normal "Done" slip. Work down the ledger in
    order: *Apply their pick* / *Work out their info* (the truthful answer is filled in), edit if they
    are drunk or poisoned, then *Hold until dawn*. Applying the Imp's kill buzzes every phone a second
    time; a Ravenkeeper killed tonight picks then. When the Ravenkeeper (or a Drunk who believes they
