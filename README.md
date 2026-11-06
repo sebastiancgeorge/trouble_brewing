@@ -53,6 +53,8 @@ warns when phones already showed the result or when picks made on phones since w
 - `server.py` FastAPI server
 - `static/` phone page, Storyteller page, theme and bundled fonts
 - `test_game.py` rule tests: `uv run --with pytest pytest -q`
+- `.github/workflows/ci.yml` CI: rule tests, a server smoke test and a syntax check of both pages on every
+  pull request; `main` only accepts changes through a pull request whose `test` check passes
 - `trouble-brewing-almanac.pdf` player almanac for the script, by Rithwik aka BlazeReceptor
 - `static/fonts/OFL-*.txt` licences for the bundled Grenze Gotisch and Alegreya Sans fonts
 
