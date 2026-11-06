@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#221A2A">
-<title>Trouble Brewing</title>
+<title>Blood on the Clocktower</title>
 <link rel="stylesheet" href="/static/theme.css">
 <style>
   main { max-width: 30rem; margin: 0 auto; padding: 1rem 1.1rem calc(5rem + env(safe-area-inset-bottom)); }
@@ -67,6 +67,8 @@
   .pick { border: 1px solid var(--ink-soft); background: transparent; border-radius: 999px; padding: 0.35em 0.9em; cursor: pointer; font-family: var(--display); font-size: var(--t-md); }
   .pick[aria-pressed="true"] { background: var(--ink); color: var(--parchment); border-color: var(--ink); }
   .pick.dead { opacity: 0.6; }
+  .pick.guess { display: inline-flex; align-items: center; gap: 0.35em; font-size: var(--t-sm); }
+  .pick.guess .glyph { width: 1.4em; height: 1.4em; }
   .slip .miss { margin: 0; color: var(--oxblood); font-weight: 700; }
   /* tap challenge: the three to find, in order, above the six to pick from */
   .seq { list-style: none; display: flex; justify-content: center; gap: 0.7rem; margin: 0.8rem 0; padding: 0; counter-reset: n; }
@@ -147,7 +149,9 @@ let timerEnd = null;
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const team = type => (type === "minion" || type === "demon") ? "evil" : "good";
 const tone = type => type === "outsider" ? "outsider" : team(type);
-const glyph = id => `<span class="glyph" style="--icon:url(/static/icons/${id}.svg)"></span>`;
+const glyph = id => `<span class="glyph" style="--icon:url(/static/icons/${chars[id]?.icon ?? id + ".svg"})"></span>`;
+const scriptName = () => state?.script_name || "Blood on the Clocktower";
+let guessPick = null;
 const TYPE_LABEL = {townsfolk: "Townsfolk", outsider: "Outsider", minion: "Minion", demon: "Demon"};
 
 // five-leaf clover: the grimoire cover a hidden character sits behind
@@ -221,9 +225,16 @@ async function tapIcon(id) {
   catch (e) { tapSeq = []; tapError = e.message; render(); }
 }
 
-async function confirmPick() {
-  try { await api("/api/choose", {token, choices: picks}); picks = []; lastVersion = -1; poll(); }
-  catch (e) { error = e.message; render(); }
+async function confirmPick(nobody = false) {
+  try {
+    await api("/api/choose", nobody ? {token, choices: []} : {token, choices: picks, guess: guessPick});
+    picks = []; guessPick = null; lastVersion = -1; poll();
+  } catch (e) { error = e.message; render(); }
+}
+
+function toggleGuess(id) {
+  guessPick = guessPick === id ? null : id;
+  render();
 }
 
 function togglePick(pid, count) {
@@ -307,7 +318,7 @@ function when(s) {
 
 function joinScreen() {
   const open = !state || state.phase === "lobby";
-  return `<div class="top"><h1>Trouble Brewing</h1></div>
+  return `<div class="top"><h1>${esc(scriptName())}</h1></div>
     <div class="join paper">${open ? `
       <h2>Take a seat</h2>
       <p>Use the name everyone at the table calls you.</p>
@@ -346,13 +357,18 @@ function prompt(s, me) {
   if (!p) return "";
   if (p.kind === "tap") return tapTask(p);
   if (p.answer) {
-    const names = p.answer.map(pid => esc(s.seats.find(x => x.pid === pid)?.name)).join(" and ");
+    const names = [...p.answer.map(pid => esc(s.seats.find(x => x.pid === pid)?.name)),
+                   ...(p.answer_guess ? [`the ${esc(chars[p.answer_guess]?.name)}`] : [])].join(" and ") || "nobody";
     return `<div class="slip paper ask"><span class="when">You chose</span>${names}. The Storyteller will tell you what happens.</div>`;
   }
   const options = s.seats.filter(x => p.allow_self || x.pid !== me.pid);
+  const guesses = p.guess ? `<div class="picks">${p.guess.map(id => `<button class="pick guess" aria-pressed="${guessPick === id}" onclick="toggleGuess('${id}')">${glyph(id)}${esc(chars[id]?.name ?? id)}</button>`).join("")}</div>` : "";
+  const ready = picks.length === p.count && (!p.guess || guessPick);
   return `<div class="slip paper ask"><span class="when">The Storyteller asks</span>${esc(p.text)}
-    <div class="picks">${options.map(x => `<button class="pick ${x.alive ? "" : "dead"}" aria-pressed="${picks.includes(x.pid)}" onclick="togglePick('${x.pid}', ${p.count})">${esc(x.name)}</button>`).join("")}</div>
-    <button class="btn" ${picks.length === p.count ? "" : "disabled"} onclick="confirmPick()">Confirm choice</button></div>`;
+    ${p.count ? `<div class="picks">${options.map(x => `<button class="pick ${x.alive ? "" : "dead"}" aria-pressed="${picks.includes(x.pid)}" onclick="togglePick('${x.pid}', ${p.count})">${esc(x.name)}</button>`).join("")}</div>` : ""}
+    ${guesses}
+    <button class="btn" ${ready ? "" : "disabled"} onclick="confirmPick()">Confirm choice</button>
+    ${p.optional ? `<button class="btn quiet" onclick="confirmPick(true)">Choose nobody</button>` : ""}</div>`;
 }
 
 function ring(s, me) {
@@ -373,14 +389,24 @@ function ring(s, me) {
 }
 
 const TYPE_INTRO = {
-  townsfolk: { side: "Good, with helpful abilities", goal: "Work out who the Demon is, and execute them.",
-    note: "Trouble Brewing has 13 Townsfolk. 3, 5, 7 or 9 are in play depending on the player count, or two fewer if the Baron is in the game." },
-  outsider: { side: "Good, but their ability hurts the good team", goal: "The same as the Townsfolk: execute the Demon.",
-    note: "Trouble Brewing has 4 Outsiders. 0, 1 or 2 are in play depending on the player count, or two more if the Baron is in the game." },
-  minion: { side: "Evil, and they support the Demon", goal: "Protect the Demon, and survive to the final two.",
-    note: "Trouble Brewing has 4 Minions. 1, 2 or 3 are in play depending on the player count." },
-  demon: { side: "Evil, and kills a player each night", goal: "Stay alive, and reduce the town to two living players.",
-    note: "Trouble Brewing has one Demon, the Imp, and there is always exactly one Demon in play." },
+  townsfolk: { side: "Good, with helpful abilities", goal: "Work out who the Demon is, and execute them." },
+  outsider: { side: "Good, but their ability hurts the good team", goal: "The same as the Townsfolk: execute the Demon." },
+  minion: { side: "Evil, and they support the Demon", goal: "Protect the Demon, and survive to the final two." },
+  demon: { side: "Evil, and kills at night", goal: "Stay alive, and reduce the town to two living players." },
+};
+const TYPE_NOTE = {
+  trouble_brewing: {
+    townsfolk: "Trouble Brewing has 13 Townsfolk. 3, 5, 7 or 9 are in play depending on the player count, or two fewer if the Baron is in the game.",
+    outsider: "Trouble Brewing has 4 Outsiders. 0, 1 or 2 are in play depending on the player count, or two more if the Baron is in the game.",
+    minion: "Trouble Brewing has 4 Minions. 1, 2 or 3 are in play depending on the player count.",
+    demon: "Trouble Brewing has one Demon, the Imp, and there is always exactly one Demon in play.",
+  },
+  bad_moon_rising: {
+    townsfolk: "Bad Moon Rising has 13 Townsfolk. 3, 5, 7 or 9 are in play depending on the player count, one more or one fewer if the Godfather is in the game.",
+    outsider: "Bad Moon Rising has 4 Outsiders. 0, 1 or 2 are in play depending on the player count, one more or one fewer if the Godfather is in the game.",
+    minion: "Bad Moon Rising has 4 Minions. 1, 2 or 3 are in play depending on the player count.",
+    demon: "Bad Moon Rising has 4 Demons, and exactly one of them is in play. Each kills in a different way, and some kill more than one player a night.",
+  },
 };
 const SETUP = [[5, 3, 0, 1, 1], [6, 3, 1, 1, 1], [7, 5, 0, 1, 1], [8, 5, 1, 1, 1], [9, 5, 2, 1, 1], [10, 7, 0, 2, 1],
                [11, 7, 1, 2, 1], [12, 7, 2, 2, 1], [13, 9, 0, 3, 1], [14, 9, 1, 3, 1], [15, 9, 2, 3, 1]];
@@ -390,36 +416,42 @@ const openCards = new Set();
 
 function almanac() {
   const s = state || {}, n = (s.seats || []).length, deo = !!s.dead_eyes;
+  const script = s.script || "trouble_brewing", bmr = script === "bad_moon_rising";
   const card = (id, c) => `<details data-id="${id}" ${openCards.has(id) ? "open" : ""} ontoggle="openCards[this.open ? 'add' : 'delete'](this.dataset.id)"><summary>${glyph(id)}<span class="nm ${tone(c.type)}-text">${esc(c.name)}</span>`
     + `<span class="tag">${esc(c.timing || "")}</span><span class="sum">${esc(c.summary)}</span></summary>`
     + `<div class="body"><p>${esc(c.ability)}</p>${c.flavour ? `<q>${esc(c.flavour)}</q>` : ""}</div></details>`;
   const groups = ["townsfolk", "outsider", "minion", "demon"].map(t => {
     const i = TYPE_INTRO[t];
     return `<h3>${TYPE_LABEL[t]}${t === "demon" ? "" : "s"}</h3>
-      <p class="lede"><b>${i.side}.</b> Goal: ${i.goal} ${i.note}</p>
-      ${Object.entries(chars).filter(([, c]) => c.type === t).map(([id, c]) => card(id, c)).join("")}`;
+      <p class="lede"><b>${i.side}.</b> Goal: ${i.goal} ${TYPE_NOTE[script][t]}</p>
+      ${Object.entries(chars).filter(([, c]) => c.type === t && c.script === script).map(([id, c]) => card(id, c)).join("")}`;
   }).join("");
 
   const evilInfo = deo
     ? "Dead Eyes Only: the Minions and the Demon are always woken on the first night and shown each other, whatever the player count."
     : "In games of 7 or more players, the Minions are woken together on the first night and shown the Demon (so they also see each other), and the Demon is shown their Minions plus three good characters that are not in play, which are safe to bluff as. In games of 5 or 6 players neither step happens, so evil starts out not knowing its own team.";
   const rules = [
-    "Good wins the moment the Demon dies, whether by execution, the Slayer, or any other way.",
-    "Evil wins when only two players are alive and the Demon is one of them, or if the Saint is executed.",
-    "Any living player may nominate once per day, and each player may be nominated once per day.",
+    bmr ? "Good wins the moment the Demon dies, unless the Mastermind keeps the game going for one more day."
+        : "Good wins the moment the Demon dies, whether by execution, the Slayer, or any other way.",
+    bmr ? "Evil wins when only two players are alive and the Demon is one of them."
+        : "Evil wins when only two players are alive and the Demon is one of them, or if the Saint is executed.",
+    bmr ? "Any living player may nominate once per day, and each player may be nominated once per day. Dead players can be nominated too."
+        : "Any living player may nominate once per day, and each player may be nominated once per day.",
     "Execution needs votes from at least half the living players, rounded up. The nominee with the most votes is executed at the end of the day. A tie for the most votes means no execution, and at most one execution happens per day.",
-    "Only the Virgin's trigger causes an execution without a vote.",
+    bmr ? "Several players can die in one night, and some players survive things that should kill them. Being executed does not always mean dying."
+        : "Only the Virgin's trigger causes an execution without a vote.",
     "Dead players keep talking freely, but lose their ability and get only one more vote for the rest of the game.",
     deo ? "Dead Eyes Only: living players do not know their own character. When you die, you are privately shown who you really were. Nobody else is told."
         : "A player's character is never revealed when they die.",
-    "An ability can malfunction (Drunk or poisoned), and the player holding it is not told when that happens.",
+    bmr ? "An ability can malfunction when its holder is drunk or poisoned, and the player is not told. In Bad Moon Rising many abilities make other players drunk."
+        : "An ability can malfunction (Drunk or poisoned), and the player holding it is not told when that happens.",
     "You may say anything, including lies. Only the Storyteller's rulings are binding, and you can ask them a question privately at any time.",
   ];
   const table = `<table><tr><th>Players</th><th>Townsfolk</th><th>Outsiders</th><th>Minions</th><th>Demon</th></tr>${
     SETUP.map(r => `<tr class="${r[0] === n ? "here" : ""}">${r.map(v => `<td>${v}</td>`).join("")}</tr>`).join("")}</table>
-    <p class="lede">If the Baron is in play there are two more Outsiders and two fewer Townsfolk. The counts are public, but who holds which character is secret.${n >= 5 && n <= 15 ? ` This game has ${n} players.` : ""}</p>`;
+    <p class="lede">${bmr ? "If the Godfather is in play there is one more or one fewer Outsider, with Townsfolk adjusted to match." : "If the Baron is in play there are two more Outsiders and two fewer Townsfolk."} The counts are public, but who holds which character is secret.${n >= 5 && n <= 15 ? ` This game has ${n} players.` : ""}</p>`;
 
-  return `<section class="almanac"><h2>Every character in this script</h2>
+  return `<section class="almanac"><h2>Every character in ${esc(s.script_name || "this script")}</h2>
     <p class="lede">Tap a character to read its full ability. The abilities aren't spoilers. Only who holds them is secret.</p>
     ${groups}
     <h3>Quick rules</h3><ul class="ref">${rules.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
@@ -458,7 +490,8 @@ function render() {
   const counts = s.counts && Object.keys(s.counts).length
     ? `<p class="empty">In play: ${Object.entries(s.counts).map(([t, k]) => `${k} ${TYPE_LABEL[t]}${k === 1 || t === "townsfolk" ? "" : "s"}`).join(", ")}.</p>` : "";
 
-  let html = `<div class="top"><h1>Trouble Brewing</h1><div class="when">${esc(me.name)}${me.alive ? "" : ", dead"}<br>${when(s)}</div></div>`;
+  document.title = scriptName();
+  let html = `<div class="top"><h1>${esc(scriptName())}</h1><div class="when">${esc(me.name)}${me.alive ? "" : ", dead"}<br>${when(s)}</div></div>`;
   if (s.winner) html += `<div class="verdict paper"><h2 class="${s.winner}-text">${s.winner === "good" ? "Good" : "Evil"} wins</h2><p>${esc(s.win_reason)}</p></div>`;
   if (nudge) html += `<button class="call" onclick="flip()"><b>${s.phase === "night" ? `Night ${s.night}` : "Dawn"}</b>${
     s.dead_eyes ? "Everyone does this: shield your screen and check for instructions."

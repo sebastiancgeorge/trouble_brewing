@@ -52,7 +52,7 @@ def one_of_two(game: Game, actor: Player, wanted_type: str) -> str:
 
 def evil_pairs(game: Game) -> int:
     """Chef count: adjacent evil seat pairs around the full circle, dead or alive."""
-    evil = [not is_good(p.character) for p in game.players]
+    evil = [p.evil for p in game.players]
     n = len(evil)
     return sum(evil[i] and evil[(i + 1) % n] for i in range(n))
 
@@ -81,8 +81,12 @@ def grimoire_text(game: Game) -> str:
             marks.append(f"thinks {char_name(p.believed)}")
         if not p.alive:
             marks.append("dead")
-        if game.poisoned == p.pid:
+        if game.poisoned == p.pid or game.pukka_poisoned == p.pid:
             marks.append("poisoned")
+        if p.pid in game.drunk:
+            marks.append("drunk")
+        if p.evil != (not is_good(p.character)):
+            marks.append("evil" if p.evil else "good")
         if game.red_herring == p.pid:
             marks.append("Fortune Teller red herring")
         suffix = f" ({', '.join(marks)})" if marks else ""
@@ -111,7 +115,7 @@ def suggest(game: Game, key: str, actor: Player | None, targets: list[Player]) -
     if key == "chef":
         return f"There are {evil_pairs(game)} pairs of evil players sitting next to each other."
     if key == "empath":
-        evil = sum(not is_good(p.character) for p in living_neighbours(game, actor))
+        evil = sum(p.evil for p in living_neighbours(game, actor))
         return f"{evil} of your living neighbours are evil."
     if key == "fortune_teller":
         hit = any(char_type(t.character) == DEMON or t.pid == game.red_herring for t in targets)
@@ -135,10 +139,47 @@ def suggest(game: Game, key: str, actor: Player | None, targets: list[Player]) -
         if game.dead_eyes:
             evil_names = ", ".join(p.name for p in game.players if not is_good(p.character))
             return (f"You are the Demon. The evil players in this game are: {evil_names}. "
-                    f"These good characters are not in play (safe bluffs): {bluffs}.")
+                    f"These good characters are not in play (safe bluffs): {bluffs}.{lunatic_note(game)}")
         minions = ", ".join(p.name for p in game.players if char_type(p.character) == MINION)
-        return f"Your Minions are {minions}. These good characters are not in play (safe bluffs): {bluffs}."
+        return f"Your Minions are {minions}. These good characters are not in play (safe bluffs): {bluffs}.{lunatic_note(game)}"
+    if key == "lunatic_info":
+        return fake_demon_info(game, actor)
+    if key == "grandmother":
+        child = next((p for p in game.players if p.pid == game.grandchild), None)
+        if not child:
+            return "Pick the grandchild in the setup first."
+        return f"Your grandchild is {child.name}, the {char_name(child.character)}."
+    if key == "godfather" and game.night == 1:
+        outsiders = [char_name(p.character) for p in game.players if char_type(p.character) == OUTSIDER]
+        return f"Outsiders in play: {', '.join(outsiders)}." if outsiders else "There are no Outsiders in play."
+    if key == "chambermaid":
+        woke = sum(game.woke_tonight(t) for t in targets)
+        return f"{' and '.join(t.name for t in targets)}: {woke} of them woke tonight due to their ability."
     return None
+
+
+def lunatic_note(game: Game) -> str:
+    """Sentence telling the Demon who the Lunatic is, or "" without one."""
+    lunatics = [p.name for p in game.players if p.character == "lunatic"]
+    return f" The Lunatic is {', '.join(lunatics)}." if lunatics else ""
+
+
+def fake_demon_info(game: Game, lunatic: Player) -> str:
+    """What a Lunatic is shown as their Demon info: random other players as Minions, and three bluffs.
+
+    Algorithm: draw as many players as there are real Minions from everyone except the Lunatic,
+    and three good characters from the script that nobody holds (the real bluffs are fine).
+    """
+    minion_count = sum(char_type(p.character) == MINION for p in game.players)
+    others = [p for p in game.players if p is not lunatic]
+    fake = game.rng.sample(others, min(minion_count, len(others)))
+    bluffs = ", ".join(char_name(b) for b in game.bluffs)
+    if game.dead_eyes:
+        names = ", ".join(p.name for p in [lunatic, *fake])
+        return (f"You are the Demon. The evil players in this game are: {names}. "
+                f"These good characters are not in play (safe bluffs): {bluffs}.")
+    return (f"Your Minions are {', '.join(p.name for p in fake)}. "
+            f"These good characters are not in play (safe bluffs): {bluffs}.")
 
 
 if __name__ == "__main__":

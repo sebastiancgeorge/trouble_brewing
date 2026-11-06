@@ -429,7 +429,7 @@ def finish_phones(g: Game) -> None:
             g.tap(x.token, x.prompt["target"])
         else:
             pool = [q.pid for q in g.players if x.prompt["allow_self"] or q.pid != x.pid]
-            g.choose(x.token, pool[:x.prompt["count"]])
+            g.choose(x.token, pool[:x.prompt["count"]], (x.prompt.get("guess") or [None])[0])
 
 
 def test_everyone_without_a_choice_gets_a_tap_task():
@@ -471,7 +471,7 @@ def test_dawn_waits_for_every_phone_with_no_override():
     with pytest.raises(GameError, match="Ben to finish"):
         g.start_day()
     assert g.phase == "night" and g.storyteller_view()["phones"] == [
-        {"pid": x.pid, "name": x.name, "done": x.name != "Ben"} for x in g.players]
+        {"pid": x.pid, "name": x.name, "done": x.name != "Ben", "tap": False} for x in g.players]
     finish_phones(g)
     g.start_day()
     assert g.phase == "day" and dev.prompt is None
@@ -869,3 +869,406 @@ def test_timer_no_op_when_not_expired():
     g.start_timer(10)
     assert g.check_timer() is False
     assert g.timer_end is not None
+
+
+# --- Bad Moon Rising ---
+
+from roles import BAD_MOON_RISING, SCRIPTS, expected_counts, on_script  # noqa: E402
+
+
+def make_bmr(chars: list[str], seed: int = 1, phones: bool = False, believed: dict | None = None) -> Game:
+    """Like make(), on Bad Moon Rising. believed maps seat index -> believed Demon for a Lunatic."""
+    g = Game(random.Random(seed))
+    g.set_script(BAD_MOON_RISING)
+    for n in NAMES[:len(chars)]:
+        g.add_player(n, phone=phones)
+    g.deal()
+    for i, (pl, c) in enumerate(zip(g.players, chars)):
+        g.set_character(pl.pid, c, (believed or {}).get(i))
+    held = {x for pl in g.players for x in (pl.character, pl.believed)}
+    g.bluffs = [c for c in on_script(BAD_MOON_RISING) if is_good(c) and c not in held][:3]
+    if "grandmother" in chars:
+        g.grandchild = next(pl.pid for pl in g.players if is_good(pl.character) and pl.character != "grandmother")
+    g.start_game()
+    return g
+
+
+def night_n(g: Game) -> None:
+    """Dawn then dusk with no execution."""
+    g.start_day()
+    g.end_day()
+
+
+def bstep(g: Game, key: str, pid: str | None = None) -> int:
+    return next(i for i, s in enumerate(g.steps) if s["key"] == key and (pid is None or s["pids"] == [pid]))
+
+
+BMR9 = ["po", "godfather", "lunatic", "grandmother", "sailor", "chambermaid", "fool", "tea_lady", "innkeeper"]
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_bmr_deal_is_on_script_and_legal(seed):
+    g = Game(random.Random(seed))
+    g.set_script(BAD_MOON_RISING)
+    for n in NAMES:
+        g.add_player(n)
+    g.deal()
+    chars = [x.character for x in g.players]
+    assert all(CHARACTERS[c]["script"] == BAD_MOON_RISING for c in chars)
+    assert all(CHARACTERS[b]["script"] == BAD_MOON_RISING for b in g.bluffs)
+    assert not [w for w in g.setup_warnings() if "Counts" in w]
+    for x in g.players:
+        if x.character == "lunatic":
+            assert CHARACTERS[x.believed]["type"] == "demon"
+    assert g.red_herring is None
+
+
+def test_godfather_counts():
+    assert (6, 1, 1, 1) in expected_counts(9, ["godfather"]) and (4, 3, 1, 1) in expected_counts(9, ["godfather"])
+    assert expected_counts(7, ["godfather"]) == [(4, 1, 1, 1)]
+
+
+def test_script_change_in_setup_redeals_and_rejects_off_script():
+    g = Game(random.Random(2))
+    for n in NAMES:
+        g.add_player(n)
+    g.deal()
+    g.set_script(BAD_MOON_RISING)
+    assert g.phase == "setup"
+    assert all(CHARACTERS[x.character]["script"] == BAD_MOON_RISING for x in g.players)
+    with pytest.raises(GameError):
+        g.set_character(g.players[0].pid, "imp")
+
+
+def test_bmr_first_night_order_and_lunatic():
+    g = make_bmr(BMR9, believed={2: "pukka"})
+    keys = [s["key"] for s in g.steps]
+    # the Lunatic believes they are the Pukka, so they wake at the Pukka's slot
+    assert keys == ["minion_info", "demon_info", "lunatic_info", "sailor", "godfather", "pukka", "grandmother",
+                    "chambermaid"]
+    assert g.steps[keys.index("pukka")]["pids"] == [p(g, "Chen").pid]
+    assert "The Lunatic is Chen" in info.suggest(g, "demon_info", None, [])
+    g.resolve(bstep(g, "godfather"), [])
+    assert "Outsiders in play: Lunatic" in g.steps[bstep(g, "godfather")]["suggestion"]
+    g.resolve(bstep(g, "grandmother"), [])
+    assert "Your grandchild is" in g.steps[bstep(g, "grandmother")]["suggestion"]
+
+
+def test_lunatic_gets_own_demon_step_and_demon_learns_pick():
+    g = make_bmr(BMR9, believed={2: "po"})
+    night_n(g)
+    lun, po = p(g, "Chen"), p(g, "Asha")
+    assert bstep(g, "po", lun.pid) != bstep(g, "po", po.pid)
+    g.resolve(bstep(g, "po", lun.pid), [p(g, "Hari").pid])
+    assert p(g, "Hari").alive
+    assert any("The Lunatic (Chen) chose Hari" in t for t in g.queued[po.pid])
+
+
+def test_sailor_cannot_die_and_innkeeper_shelters():
+    g = make_bmr(BMR9)
+    night_n(g)
+    g.resolve(bstep(g, "sailor"), [p(g, "Finn").pid])  # Finn (Chambermaid) is drunk, the Sailor sober
+    g.resolve(bstep(g, "innkeeper"), [p(g, "Gita").pid, p(g, "Ines").pid], drunk=p(g, "Gita").pid)
+    g.resolve(bstep(g, "po"), [p(g, "Ema").pid])
+    assert p(g, "Ema").alive
+    assert g.impaired(p(g, "Finn")) and g.impaired(p(g, "Gita"))
+    g.start_day()
+    g.end_day()
+    assert not g.impaired(p(g, "Finn")), "drunk until dusk only"
+
+
+def test_fool_survives_once():
+    g = make_bmr(["po", "godfather", "fool", "sailor", "chambermaid", "gambler", "tinker"])
+    night_n(g)
+    g.resolve(bstep(g, "po"), [p(g, "Chen").pid])
+    assert p(g, "Chen").alive
+    night_n(g)
+    g.resolve(bstep(g, "po"), [p(g, "Chen").pid])
+    assert not p(g, "Chen").alive
+
+
+def test_tea_lady_protects_good_neighbours():
+    g = make_bmr(["po", "godfather", "sailor", "tea_lady", "fool", "gambler", "tinker"])
+    night_n(g)
+    g.resolve(bstep(g, "po"), [p(g, "Ema").pid])  # Ema sits next to the Tea Lady; Chen is the other good neighbour
+    assert p(g, "Ema").alive
+
+
+def test_exorcist_stops_demon():
+    g = make_bmr(["po", "godfather", "exorcist", "sailor", "chambermaid", "gambler", "tinker"], phones=True)
+    finish_phones(g)
+    night_n(g)
+    po = p(g, "Asha")
+    g.resolve(bstep(g, "exorcist"), [po.pid])
+    s = g.steps[bstep(g, "po")]
+    assert s["done"] and not g.step_applies(s)
+    assert po.prompt["kind"] == "tap"
+    assert any("The Exorcist (Chen) chose you" in t for t in g.queued[po.pid])
+    finish_phones(g)
+    night_n(g)
+    with pytest.raises(GameError):
+        g.resolve(bstep(g, "exorcist"), [po.pid])
+
+
+def test_po_charges_then_kills_three():
+    g = make_bmr(["po", "godfather", "chambermaid", "sailor", "gambler", "tinker", "minstrel", "fool"])
+    night_n(g)
+    g.resolve(bstep(g, "po"), [])
+    assert g.po_charged
+    night_n(g)
+    s = g.steps[bstep(g, "po")]
+    assert s["choose"] == 3
+    g.resolve(bstep(g, "po"), [p(g, "Chen").pid, p(g, "Ema").pid, p(g, "Finn").pid])
+    assert not any(p(g, n).alive for n in ("Chen", "Ema", "Finn"))
+
+
+def test_pukka_poisons_then_kills_next_night():
+    g = make_bmr(["pukka", "godfather", "chambermaid", "gambler", "tinker", "minstrel", "exorcist"])
+    g.resolve(bstep(g, "pukka"), [p(g, "Chen").pid])
+    assert g.impaired(p(g, "Chen"))
+    night_n(g)
+    assert g.impaired(p(g, "Chen")), "still poisoned the next day and night"
+    g.resolve(bstep(g, "pukka"), [p(g, "Dev").pid])
+    assert not p(g, "Chen").alive and g.impaired(p(g, "Dev"))
+
+
+def test_shabaloth_kills_two():
+    g = make_bmr(["shabaloth", "godfather", "chambermaid", "gambler", "tinker", "minstrel", "exorcist"])
+    night_n(g)
+    g.resolve(bstep(g, "shabaloth"), [p(g, "Chen").pid, p(g, "Dev").pid])
+    assert not p(g, "Chen").alive and not p(g, "Dev").alive
+
+
+def test_zombuul_seems_to_die_then_dies_when_executed_dead():
+    g = make_bmr(["zombuul", "godfather", "chambermaid", "gambler", "tinker", "minstrel", "exorcist"])
+    g.start_day()
+    z = p(g, "Asha")
+    g.nominate(p(g, "Ben").pid, z.pid)
+    g.record_votes(0, [x.pid for x in g.players][:5])
+    g.end_day()
+    assert not z.alive and g.zombuul_fake == z.pid and g.phase == "night"
+    assert g.public_view()["seats"][0]["alive"] is False
+    assert not g.step_applies(g.steps[bstep(g, "zombuul")]), "someone died today"
+    g.start_day()
+    g.end_day()
+    assert g.step_applies(g.steps[bstep(g, "zombuul")]), "a dead-looking Zombuul still wakes"
+    g.resolve(bstep(g, "zombuul"), [p(g, "Chen").pid])
+    g.start_day()
+    g.nominate(p(g, "Ben").pid, z.pid)
+    g.record_votes(0, [x.pid for x in g.players if x.alive][:4])
+    g.end_day()
+    assert g.winner == "good"
+
+
+def test_gambler_dies_on_wrong_guess():
+    g = make_bmr(["po", "godfather", "gambler", "sailor", "chambermaid", "tinker", "minstrel"])
+    night_n(g)
+    g.resolve(bstep(g, "gambler"), [p(g, "Asha").pid], guess="pukka")
+    assert not p(g, "Chen").alive
+    night_n(g)  # dead: no step
+    g2 = make_bmr(["po", "godfather", "gambler", "sailor", "chambermaid", "tinker", "minstrel"])
+    night_n(g2)
+    g2.resolve(bstep(g2, "gambler"), [p(g2, "Asha").pid], guess="po")
+    assert p(g2, "Chen").alive
+
+
+def test_professor_resurrects_townsfolk_at_dawn():
+    g = make_bmr(["po", "godfather", "professor", "sailor", "chambermaid", "tinker", "minstrel"])
+    night_n(g)
+    g.resolve(bstep(g, "po"), [p(g, "Ema").pid])
+    g.start_day(); g.end_day()
+    g.resolve(bstep(g, "professor"), [p(g, "Ema").pid])
+    assert p(g, "Ema").alive
+    assert not g.public_view()["seats"][4]["alive"], "hidden from the table until dawn"
+    g.start_day()
+    assert any("Ema has been brought back" in a for a in g.announcements)
+    g.end_day()
+    assert not any(s["key"] == "professor" and g.step_applies(s) for s in g.steps), "once per game"
+
+
+def test_courtier_drunk_three_nights():
+    g = make_bmr(["po", "godfather", "courtier", "sailor", "chambermaid", "tinker", "minstrel"])
+    g.resolve(bstep(g, "courtier"), [], guess="godfather")
+    assert g.impaired(p(g, "Ben"))
+    for _ in range(2):
+        night_n(g)
+        assert g.impaired(p(g, "Ben"))
+    night_n(g)
+    assert not g.impaired(p(g, "Ben"))
+    assert not any(s["key"] == "courtier" and g.step_applies(s) for s in g.steps)
+
+
+def test_godfather_kills_after_outsider_death():
+    g = make_bmr(["po", "godfather", "tinker", "sailor", "chambermaid", "gambler", "minstrel"])
+    night_n(g)
+    assert not g.step_applies(g.steps[bstep(g, "godfather")])
+    g.start_day()
+    g.kill(p(g, "Chen").pid)  # the Tinker dies
+    g.end_day()
+    s = bstep(g, "godfather")
+    assert g.step_applies(g.steps[s])
+    g.resolve(s, [p(g, "Finn").pid])
+    assert not p(g, "Finn").alive
+
+
+def test_assassin_ignores_protection():
+    g = make_bmr(["po", "assassin", "sailor", "chambermaid", "gambler", "tinker", "minstrel"])
+    night_n(g)
+    g.resolve(bstep(g, "assassin"), [p(g, "Chen").pid])
+    assert not p(g, "Chen").alive, "the Sailor can't die, but the Assassin kills anyway"
+
+
+def test_devils_advocate_saves_from_execution():
+    g = make_bmr(["po", "devils_advocate", "sailor", "chambermaid", "gambler", "tinker", "minstrel"])
+    g.resolve(bstep(g, "devils_advocate"), [p(g, "Dev").pid])
+    g.start_day()
+    g.nominate(p(g, "Ben").pid, p(g, "Dev").pid)
+    g.record_votes(0, [x.pid for x in g.players][:5])
+    g.end_day()
+    assert p(g, "Dev").alive
+    with pytest.raises(GameError):
+        g.resolve(bstep(g, "devils_advocate"), [p(g, "Dev").pid])
+
+
+def test_minstrel_makes_everyone_drunk_after_minion_execution():
+    g = make_bmr(["po", "godfather", "minstrel", "sailor", "chambermaid", "gambler", "tinker"])
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Ben").pid)
+    g.record_votes(0, [x.pid for x in g.players][:5])
+    g.end_day()
+    assert not p(g, "Ben").alive
+    assert g.impaired(p(g, "Dev")) and not g.impaired(p(g, "Chen"))
+    night_n(g)
+    assert not g.impaired(p(g, "Dev")), "drunk until dusk tomorrow"
+
+
+def test_mastermind_extra_day():
+    g = make_bmr(["po", "mastermind", "minstrel", "sailor", "chambermaid", "gambler", "tinker"])
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Asha").pid)
+    g.record_votes(0, [x.pid for x in g.players][:5])
+    g.end_day()
+    assert not g.winner and g.phase == "night"
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Dev").pid)  # the Sailor is good, so good loses
+    g.record_votes(0, [x.pid for x in g.players if x.alive][:5])
+    g.end_day()
+    assert g.winner == "evil"
+
+
+def test_mastermind_extra_day_without_execution_evil_wins():
+    g = make_bmr(["po", "mastermind", "minstrel", "sailor", "chambermaid", "gambler", "tinker"])
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Asha").pid)
+    g.record_votes(0, [x.pid for x in g.players][:5])
+    g.end_day()
+    g.start_day()
+    g.end_day()
+    assert g.winner == "evil"
+
+
+def test_goon_drunks_first_chooser_and_takes_alignment():
+    g = make_bmr(["po", "godfather", "goon", "sailor", "chambermaid", "gambler", "minstrel"])
+    night_n(g)
+    g.resolve(bstep(g, "po"), [p(g, "Chen").pid])
+    assert p(g, "Chen").alive, "the Po was drunk by choosing the Goon"
+    assert p(g, "Chen").evil
+
+
+def test_grandmother_dies_with_grandchild():
+    g = make_bmr(["po", "godfather", "grandmother", "chambermaid", "gambler", "tinker", "minstrel"])
+    night_n(g)
+    child = g.get(g.grandchild)
+    g.resolve(bstep(g, "po"), [child.pid])
+    assert not child.alive and not p(g, "Chen").alive
+
+
+def test_moonchild_choice_kills_good_player_that_night():
+    g = make_bmr(["po", "godfather", "moonchild", "sailor", "chambermaid", "gambler", "minstrel"])
+    g.start_day()
+    g.kill(p(g, "Chen").pid)
+    g.moonchild_pick(p(g, "Ema").pid)
+    g.end_day()
+    i = bstep(g, "moonchild")
+    assert g.steps[i]["answer"] == [p(g, "Ema").pid]
+    g.resolve(i, [p(g, "Ema").pid])
+    assert not p(g, "Ema").alive
+
+
+def test_gossip_step_only_after_true_statement():
+    g = make_bmr(["po", "godfather", "gossip", "sailor", "chambermaid", "gambler", "minstrel"])
+    night_n(g)
+    assert not g.step_applies(g.steps[bstep(g, "gossip")])
+    g.start_day()
+    g.set_gossip(True)
+    g.end_day()
+    i = bstep(g, "gossip")
+    assert g.step_applies(g.steps[i]) and not p(g, "Chen").prompt or p(g, "Chen").prompt["kind"] != "choose"
+    g.resolve(i, [p(g, "Ema").pid])
+    assert not p(g, "Ema").alive
+
+
+def test_pacifist_spares_good_player():
+    g = make_bmr(["po", "godfather", "pacifist", "chambermaid", "gambler", "tinker", "minstrel"])
+    g.start_day()
+    g.nominate(p(g, "Chen").pid, p(g, "Dev").pid)
+    g.record_votes(0, [x.pid for x in g.players][:5])
+    g.end_day(spare=True)
+    assert p(g, "Dev").alive
+
+
+def test_chambermaid_counts_wakers():
+    g = make_bmr(BMR9)
+    i = bstep(g, "chambermaid")
+    g.resolve(i, [p(g, "Ema").pid, p(g, "Gita").pid])  # Sailor wakes, Fool does not
+    assert "1 of them woke" in g.steps[i]["suggestion"]
+
+
+def test_phone_gambler_guess_and_optional_nobody():
+    g = make_bmr(["po", "assassin", "gambler", "sailor", "chambermaid", "tinker", "minstrel"], phones=True)
+    finish_phones(g)
+    night_n(g)
+    gam, ass = p(g, "Chen"), p(g, "Ben")
+    with pytest.raises(GameError):
+        g.choose(gam.token, [p(g, "Asha").pid])
+    g.choose(gam.token, [p(g, "Asha").pid], "po")
+    assert g.steps[bstep(g, "gambler")]["answer_guess"] == "po"
+    g.choose(ass.token, [])
+    assert g.steps[bstep(g, "assassin")]["answer"] == []
+
+
+def test_tap_tasks_use_script_icons():
+    g = make_bmr(BMR9, phones=True)
+    tasks = [x.prompt for x in g.players if x.prompt and x.prompt["kind"] == "tap"]
+    assert tasks and all(CHARACTERS[c]["script"] == BAD_MOON_RISING for t in tasks for c in t["options"])
+
+
+def test_script_names():
+    assert {m["name"] for m in SCRIPTS.values()} == {"Trouble Brewing", "Bad Moon Rising"}
+
+
+def test_storyteller_skips_tap_challenges():
+    g = make(NINE, phones=True)
+    tappers = [x for x in g.players if x.prompt and x.prompt["kind"] == "tap"]
+    g.skip_tap(tappers[0].pid)
+    assert tappers[0].prompt["answer"] == tappers[0].prompt["target"]
+    assert tappers[0] not in g.phones_waiting()
+    with pytest.raises(GameError):
+        g.skip_tap(tappers[0].pid)
+    g.skip_tap()
+    assert all(x.prompt["kind"] == "choose" for x in g.phones_waiting()), "real choices are not skipped"
+    inputs = g.phone_inputs
+    assert inputs == 0, "a skip is not a pick made on a phone"
+
+
+def test_skip_tap_unblocks_dawn():
+    g = make(NINE, phones=True)
+    for x in g.phones_waiting():
+        if x.prompt["kind"] == "choose":
+            pool = [q.pid for q in g.players if x.prompt["allow_self"] or q.pid != x.pid]
+            g.choose(x.token, pool[:x.prompt["count"]])
+    with pytest.raises(GameError):
+        g.start_day()
+    g.skip_tap()
+    g.start_day()
+    assert g.phase == "day"

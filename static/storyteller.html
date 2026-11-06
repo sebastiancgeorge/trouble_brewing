@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grimoire - Trouble Brewing</title>
+<title>Grimoire</title>
 <link rel="stylesheet" href="/static/theme.css">
 <style>
   html { font-size: 16px; }
@@ -89,6 +89,7 @@
   .phones ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0; margin: 0.3rem 0 1rem; }
   .phones li { padding: 0.1em 0.7em; border-radius: 999px; font-size: var(--t-sm); border: 1px dashed var(--oxblood); color: var(--oxblood); }
   .phones li.done { border: 1px solid var(--moss); color: var(--moss); }
+  .phones .skip { margin-left: 0.3em; border: 0; background: var(--oxblood); color: var(--parchment); border-radius: 999px; font-size: var(--t-xs); padding: 0 0.5em; cursor: pointer; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
   .chip { border: 1px solid var(--ink-soft); background: transparent; border-radius: 999px; padding: 0.2em 0.75em; cursor: pointer; color: var(--ink); }
@@ -117,6 +118,11 @@
   .toast { position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%); background: var(--oxblood); color: var(--parchment); padding: 0.7rem 1.2rem; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
   .variant { display: flex; align-items: center; gap: 0.6rem; margin: 0.8rem 0; padding: 0.5rem 0.8rem; border-radius: 8px; border: 1px solid var(--parchment-dim); }
   .variant label { cursor: pointer; font-weight: 500; }
+  .scripts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin: 0.8rem 0; }
+  .scripts button { text-align: left; padding: 0.7rem 0.9rem; border-radius: 10px; border: 1px solid var(--parchment-dim); background: transparent; color: var(--ink); cursor: pointer; display: grid; gap: 0.2rem; }
+  .scripts button b { font-family: var(--display); font-weight: 400; font-size: var(--t-lg); }
+  .scripts button span { font-size: var(--t-sm); color: var(--ink-soft); }
+  .scripts button[aria-pressed="true"] { border: 2px solid var(--ink); background: rgba(224, 150, 47, 0.14); }
   .day-timer-ctl { margin: 1rem 0; padding: 0.8rem 1rem; border-radius: 10px; border: 1px solid var(--parchment-dim); }
   .day-timer-ctl .clock { font-family: var(--display); font-size: var(--t-2xl); color: var(--oxblood); margin: 0.3rem 0; }
   .day-timer-ctl .clock.ticking { color: var(--brass); }
@@ -126,7 +132,7 @@
 </head>
 <body>
 <div class="layout">
-  <div class="table"><header><h1>Trouble Brewing</h1><span id="sub"></span><div class="undo" id="undo"></div></header><div class="square" id="square"></div></div>
+  <div class="table"><header><h1 id="title">Grimoire</h1><span id="sub"></span><div class="undo" id="undo"></div></header><div class="square" id="square"></div></div>
   <aside class="ledger paper" id="ledger"></aside>
 </div>
 <div id="toast" role="status"></div>
@@ -154,6 +160,25 @@ const HINTS_STD = {
   imp: "Picking themselves passes the Imp to a Minion. An attack on the Mayor may land elsewhere. Applying this starts the second round.",
   ravenkeeper: "Only if they died tonight. They pick during the second round and learn that character at dawn.",
   undertaker: "Only if someone was executed today. Sent automatically at dawn unless you send or skip it first.",
+  // Bad Moon Rising
+  lunatic_info: "The Lunatic believes they are the Demon: show them made-up Minions and bluffs. The real Demon learns who the Lunatic is.",
+  grandmother: "Show the grandchild and their character. If the Demon kills the grandchild, the Grandmother dies too (automatic).",
+  sailor: "Pick who is drunk until dusk: the Sailor or their pick. A sober Sailor can't die.",
+  chambermaid: "Count how many of the two woke tonight for their own ability. Wake her last, once everyone else is done.",
+  exorcist: "If they pick the Demon, the Demon learns who they are and does not wake (their step is skipped). Different player each night.",
+  innkeeper: "Both picks can't die tonight; choose which one is drunk until dusk.",
+  gambler: "If the guess is wrong, the Gambler dies (unless something saves them).",
+  courtier: "Once per game. The holder of the chosen character is drunk for 3 nights and 3 days.",
+  professor: "Once per game. A dead Townsfolk comes back to life, announced at dawn.",
+  godfather: "First night: learns the Outsiders in play. Later: only after an Outsider died today; their pick dies.",
+  devils_advocate: "Their pick survives execution tomorrow. Different player each night.",
+  assassin: "Once per game. Their pick dies even if they could not.",
+  zombuul: "Only if nobody died today. The first time the Zombuul dies, they live on but register as dead.",
+  pukka: "Their pick is poisoned. Last night's pick dies now (automatic) and is healthy again.",
+  shabaloth: "Both picks die. A dead player they chose last night may be regurgitated: tap their token and bring them back.",
+  po: "May choose nobody; then they choose three next time.",
+  gossip: "Their statement today was true: you pick who dies tonight.",
+  moonchild: "The Moonchild's public choice: if good, they die tonight. Pre-filled from today.",
 };
 const HINTS_DEO = {
   minion_info: "Wake all evil players together. Each Minion learns they are a Minion and sees who else is evil. They do not learn their specific Minion role.",
@@ -172,11 +197,12 @@ const HINTS_DEO = {
   ravenkeeper: "Only if they died tonight. They now know they are the Ravenkeeper (dead eyes reveal). They pick during the second round and learn that character at dawn.",
   undertaker: "Only if someone was executed today. Sent automatically at dawn unless you send or skip it first.",
 };
-function hint(key) { return (S.dead_eyes ? HINTS_DEO : HINTS_STD)[key] || ""; }
+function hint(key) { return (S.dead_eyes && HINTS_DEO[key]) || HINTS_STD[key] || ""; }
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const cname = id => C[id]?.name ?? "";
-const glyph = id => id ? `<span class="glyph" style="--icon:url(/static/icons/${id}.svg)"></span>` : "";
+const glyph = id => id ? `<span class="glyph" style="--icon:url(/static/icons/${C[id]?.icon ?? id + ".svg"})"></span>` : "";
+const onScript = c => c.script === S.script;
 const team = id => ["minion", "demon"].includes(C[id]?.type) ? "evil" : "good";
 const tone = id => C[id]?.type === "outsider" ? "outsider" : team(id);
 const pname = pid => S.players.find(p => p.pid === pid)?.name ?? "";
@@ -226,13 +252,13 @@ function opts(list, chosen, blank) {
 }
 const playerOpts = (filter = () => true, chosen, blank) =>
   opts(S.players.filter(filter).map(p => [p.pid, p.name + (p.alive ? "" : " (dead)")]), chosen, blank);
-const charOpts = (chosen, type) =>
-  opts(Object.entries(C).filter(([, c]) => !type || c.type === type).map(([id, c]) => [id, c.name]), chosen);
+const charOpts = (chosen, type, blank) =>
+  opts(Object.entries(C).filter(([, c]) => onScript(c) && (!type || c.type === type)).map(([id, c]) => [id, c.name]), chosen, blank);
 
 // legal bluffs only; the saved pick stays listed so a now-illegal one is visible, not silently swapped
 function bluffOpts(chosen) {
   const held = new Set(S.players.flatMap(p => [p.character, p.believed]));
-  return opts(Object.entries(C).filter(([id, c]) => id === chosen || (["townsfolk", "outsider"].includes(c.type) && !held.has(id)))
+  return opts(Object.entries(C).filter(([id, c]) => id === chosen || (onScript(c) && ["townsfolk", "outsider"].includes(c.type) && !held.has(id)))
     .map(([id, c]) => [id, c.name]), chosen);
 }
 
@@ -266,6 +292,8 @@ function render() {
   // a re-render mid-drag would drop the token being moved
   if (!S || drag?.moved) return;
   document.body.classList.toggle("day", S.phase !== "night");
+  el("title").textContent = S.script_name;
+  document.title = `Grimoire - ${S.script_name}`;
   const focusId = document.activeElement?.id;
   if (selected && !S.players.some(p => p.pid === selected)) selected = null;
   const alive = S.players.filter(p => p.alive).length;
@@ -293,9 +321,16 @@ function square() {
     const a = (i / n) * 2 * Math.PI - Math.PI / 2;
     const left = 50 + 41 * Math.cos(a), top = 50 + 41 * Math.sin(a);
     const rems = [];
-    if (S.poisoned === p.pid) rems.push(`<span class="rem poison">poisoned</span>`);
-    if (p.character === "drunk") rems.push(`<span class="rem poison">drunk</span>`);
+    if (S.poisoned === p.pid || S.pukka_poisoned === p.pid) rems.push(`<span class="rem poison">poisoned</span>`);
+    if (p.character === "drunk" || S.drunk?.[p.pid]) rems.push(`<span class="rem poison">drunk</span>`);
     if (S.protected === p.pid) rems.push(`<span class="rem safe">protected</span>`);
+    if (S.safe?.includes(p.pid)) rems.push(`<span class="rem safe">sheltered</span>`);
+    if (S.da_target === p.pid) rems.push(`<span class="rem safe">survives execution</span>`);
+    if (S.grandchild === p.pid && S.phase !== "lobby") rems.push(`<span class="rem herring">grandchild</span>`);
+    if (S.zombuul_fake === p.pid) rems.push(`<span class="rem herring">seems dead</span>`);
+    if (S.exorcised === p.pid) rems.push(`<span class="rem safe">exorcised</span>`);
+    if (S.moonchild_target === p.pid) rems.push(`<span class="rem poison">Moonchild's pick</span>`);
+    if (p.character && p.evil !== (team(p.character) === "evil")) rems.push(`<span class="rem herring">now ${p.evil ? "evil" : "good"}</span>`);
     if (S.master === p.pid) rems.push(`<span class="rem master">master</span>`);
     if (S.red_herring === p.pid && S.phase !== "lobby") rems.push(`<span class="rem herring">red herring</span>`);
     if (!p.alive) rems.push(`<span class="rem vote">${p.ghost_vote ? "vote left" : "no vote"}</span>`);
@@ -388,15 +423,22 @@ function roleDetails(p) {
   const status = [];
   if (!p.alive) status.push(`dead, ${p.ghost_vote ? "vote left" : "vote used"}`);
   if (S.poisoned === p.pid) status.push("poisoned");
+  if (S.pukka_poisoned === p.pid) status.push("poisoned by the Pukka, dies when the Pukka next acts");
+  if (S.drunk?.[p.pid]) status.push(`drunk until night ${S.drunk[p.pid]} begins`);
+  if (S.safe?.includes(p.pid)) status.push("can't die tonight (Innkeeper)");
+  if (S.da_target === p.pid) status.push("won't die if executed today (Devil's Advocate)");
+  if (S.grandchild === p.pid) status.push("the Grandmother's grandchild");
+  if (S.zombuul_fake === p.pid) status.push("registers as dead, but lives");
+  if (p.character && p.evil !== (team(p.character) === "evil")) status.push(`now ${p.evil ? "evil" : "good"} (Goon)`);
   if (S.protected === p.pid) status.push("protected by the Monk");
   if (S.master === p.pid) status.push("the Butler's Master");
   if (S.red_herring === p.pid) status.push("Fortune Teller's red herring");
   let h = `<div class="details"><div class="role ${tone(p.character)}-text">${glyph(p.character)}${esc(c.name)}</div>
-    <div class="kind">${KIND[c.type]}, ${team(p.character)} team</div>
+    <div class="kind">${KIND[c.type]}, ${p.evil === undefined ? team(p.character) : p.evil ? "evil" : "good"} team</div>
     <p>${esc(c.ability)}</p>`;
   if (p.believed && p.believed !== p.character) {
     const b = C[p.believed];
-    h += `<div class="believed"><div class="kind">Thinks they are the ${esc(b.name)}. Their ability does not work.</div><p>${esc(b.ability)}</p></div>`;
+    h += `<div class="believed"><div class="kind">Thinks they are the ${esc(b.name)}. ${p.character === "lunatic" ? "Their picks do nothing; the Demon learns them." : "Their ability does not work."}</div><p>${esc(b.ability)}</p></div>`;
   }
   if (status.length) h += `<div class="kind">Right now: ${esc(status.join(", "))}.</div>`;
   return h + `</div>`;
@@ -415,6 +457,7 @@ function inspector() {
   if (S.phase === "setup") {
     body += `<label class="field"><span>Character</span><select onchange="act('set_character', {pid:${q(id)}, character:this.value})">${charOpts(p.character)}</select></label>`;
     if (p.character === "drunk") body += `<label class="field"><span>Believes they are</span><select onchange="act('set_character', {pid:${q(id)}, character:'drunk', believed:this.value})">${charOpts(p.believed, "townsfolk")}</select></label>`;
+    if (p.character === "lunatic") body += `<label class="field"><span>Believes they are</span><select onchange="act('set_character', {pid:${q(id)}, character:'lunatic', believed:this.value})">${charOpts(p.believed, "demon")}</select></label>`;
     body += roleDetails(p);
   }
   if (S.phase === "night" || S.phase === "day") {
@@ -435,6 +478,18 @@ function inspector() {
     <div class="note">Seat ${i + 1}</div>${body}</div>`;
 }
 
+const SCRIPT_BLURB = {
+  trouble_brewing: "The beginner script: one Imp, lots of information, a clear puzzle.",
+  bad_moon_rising: "Deaths every night, four different Demons, and players who refuse to die.",
+};
+
+function scriptPicker() {
+  const ids = ["trouble_brewing", "bad_moon_rising"];
+  return `<div class="scripts" role="group" aria-label="Script">${ids.map(id => `<button aria-pressed="${S.script === id}"
+      onclick="${S.script === id ? "" : `act('set_script', {script:'${id}'}, 'bluff-')`}"><b>${id === "trouble_brewing" ? "Trouble Brewing" : "Bad Moon Rising"}</b><span>${SCRIPT_BLURB[id]}</span></button>`).join("")}</div>
+    ${S.phase === "setup" ? `<p class="note">Changing the script deals again.</p>` : ""}`;
+}
+
 function variantToggle() {
   return `<div class="variant"><label><input type="checkbox" ${S.dead_eyes ? "checked" : ""}
     onchange="act('set_variant', {dead_eyes: this.checked})"> Dead Eyes Only</label>
@@ -445,12 +500,14 @@ function lobby() {
   const n = S.players.length;
   return `<h2>Gather the players</h2>
     <p class="lede">Everyone scans the code on the table, or opens ${esc(S.join_url)} on their phone. Then drag the tokens so the circle matches how you are actually sitting, clockwise.</p>
+    <h3>Which script?</h3>
+    ${scriptPicker()}
     ${variantToggle()}
     <div class="field"><span>Someone without a phone</span>
       <div class="line"><input id="add-name" placeholder="Their name"><button class="btn quiet small" onclick="act('add_player', {name: val('add-name')}, 'add-')">Seat them</button></div>
       <p class="note">You will read their character and night info to them yourself.</p></div>
     <h3>Deal</h3>
-    <p class="note">${n < 5 ? `Trouble Brewing needs at least 5 players. ${n} seated so far.` : `${n} players seated.`}</p>
+    <p class="note">${n < 5 ? `${esc(S.script_name)} needs at least 5 players. ${n} seated so far.` : `${n} players seated.`}</p>
     <button class="btn" ${n >= 5 && n <= 15 ? "" : "disabled"} onclick="act('deal')">Deal characters</button>`;
 }
 
@@ -460,41 +517,62 @@ function setup() {
   const counts = types.map(t => `${S.players.filter(p => C[p.character]?.type === t).length} ${plural[t]}`).join(", ");
   return `<h2>Check the deal</h2>
     <p class="lede">${counts}. Tap any token to swap its character. ${S.dead_eyes ? "Dead Eyes Only: players never see their character until they die." : "Players see their character when the game starts."}</p>
+    ${scriptPicker()}
     ${variantToggle()}
     ${S.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("")}
-    <label class="field"><span>Fortune Teller's red herring</span><select id="rh">${playerOpts(p => team(p.character) === "good", S.red_herring)}</select></label>
+    ${S.script === "trouble_brewing" ? `<label class="field"><span>Fortune Teller's red herring</span><select id="rh">${playerOpts(p => team(p.character) === "good", S.red_herring)}</select></label>` : ""}
+    ${S.players.some(p => p.character === "grandmother") ? `<label class="field"><span>Grandmother's grandchild</span><select id="gc">${playerOpts(p => team(p.character) === "good" && p.character !== "grandmother", S.grandchild, "Pick a good player")}</select></label>` : ""}
     <div class="field"><span>Demon bluffs: good characters nobody holds</span><div class="line">${[0, 1, 2].map(i => `<select id="bluff-${i}" aria-label="Bluff ${i + 1}">${bluffOpts(S.bluffs[i])}</select>`).join("")}</div>
       ${S.bluff_problems.map(w => `<div class="warn">${esc(w)}</div>`).join("")}</div>
-    <button class="btn quiet small" onclick="act('set_setup', {red_herring: val('rh'), bluffs: [0,1,2].map(i => val('bluff-'+i))}, 'bluff-')">Save red herring and bluffs</button>
+    <button class="btn quiet small" onclick="act('set_setup', {red_herring: val('rh') || null, grandchild: val('gc') || null, bluffs: [0,1,2].map(i => val('bluff-'+i))}, 'bluff-')">Save setup choices</button>
     <h3>Begin</h3>
     <div class="line"><button class="btn" ${S.bluff_problems.length ? "disabled" : ""} onclick="act('start_game')">Start the first night</button>
       <button class="btn quiet" onclick="act('deal', {}, 'bluff-')">Deal again</button></div>`;
 }
 
+const STEP_TITLES = {minion_info: "Minions meet the Demon", demon_info: "Demon meets the Minions", lunatic_info: "Lunatic's fake Demon info"};
+const ST_PICKS = new Set(["gossip", "moonchild"]);
+
 function stepItem(s, i, cur) {
-  const title = s.key === "minion_info" ? "Minions meet the Demon" : s.key === "demon_info" ? "Demon meets the Minions" : cname(s.key);
+  const actor = S.players.find(p => p.pid === s.pids[0]);
+  const lunatic = actor?.character === "lunatic" && C[s.key]?.type === "demon";
+  const title = (STEP_TITLES[s.key] ?? cname(s.key)) + (lunatic ? " (Lunatic)" : "");
   const who = s.pids.map(pname).join(", ");
   const open = (openStep ?? cur) === i;
   const state = s.done ? "done" : !s.applies ? "skip" : i === cur ? "current" : "";
   let h = `<li class="${state}"><button class="stephead" onclick="openStep = ${open ? -1 : i}; render()" aria-expanded="${open}">
-      <b>${esc(title)}</b><span>${esc(who)}${!s.applies && !s.done ? ", sleeps" : ""}</span></button>`;
+      <b>${esc(title)}</b><span>${esc(who)}${s.exorcised ? ", exorcised" : !s.applies && !s.done ? ", sleeps" : ""}</span></button>`;
   if (!open) return h + `</li>`;
-  h += `<p class="note">${esc(hint(s.key))}</p>`;
+  h += `<p class="note">${esc(lunatic ? "The Lunatic thinks they are this Demon. Their pick does nothing; the real Demon is told whom they chose." : hint(s.key))}</p>`;
   if (s.sent) h += `<p class="note">Held for dawn: <span class="answer">${esc(s.sent)}</span></p>`;
-  if (s.impaired) h += `<p><span class="flag">Drunk or poisoned</span> <span class="note">Their information may be false.</span></p>`;
-  if (s.choose) {
-    const status = s.answer ? `Picked on their phone: <span class="answer">${s.answer.map(pname).join(" and ")}</span>`
+  if (s.impaired) h += `<p><span class="flag">Drunk or poisoned</span> <span class="note">Their ability does not work; information may be false.</span></p>`;
+  const stPick = ST_PICKS.has(s.key);
+  if (s.choose || s.guess) {
+    const picked = s.answer ? (s.answer.length ? s.answer.map(pname).join(" and ") : "nobody") + (s.answer_guess ? `, guessing ${cname(s.answer_guess)}` : "") : "";
+    const status = stPick ? "You make this pick." : s.answer ? `Picked on their phone: <span class="answer">${esc(picked)}</span>`
       : s.asked ? "Waiting for their phone" : s.key === "ravenkeeper" ? "Prompted in the second round if they die" : "";
-    h += `<div class="line"><span class="note">${status}</span>${s.asked || s.answer ? `<button class="btn quiet small" onclick="act('ask', {step:${i}})">Ask again</button>` : ""}</div>
-      <div class="line">${[...Array(s.choose).keys()].map(k => `<select id="c-${i}-${k}" aria-label="Pick ${k + 1}">${playerOpts(() => true, s.answer?.[k] ?? s.choices[k], "Pick a player")}</select>`).join("")}</div>`;
+    h += `<div class="line"><span class="note">${status}</span>${!stPick && (s.asked || s.answer) ? `<button class="btn quiet small" onclick="act('ask', {step:${i}})">Ask again</button>` : ""}</div>
+      <div class="line">${[...Array(s.choose).keys()].map(k => `<select id="c-${i}-${k}" aria-label="Pick ${k + 1}">${playerOpts(() => true, s.answer?.[k] ?? s.choices[k], s.optional ? "Nobody" : "Pick a player")}</select>`).join("")}
+        ${s.guess ? `<select id="c-${i}-guess" aria-label="Character">${charOpts(s.answer_guess ?? "", null, s.optional ? "No character" : "Pick a character")}</select>` : ""}</div>`;
     if (s.key === "imp") {
       h += `<label class="field"><span>If the Mayor is attacked, kill instead</span><select id="c-${i}-redirect">${playerOpts(p => p.alive, "", "Nobody, the Mayor dies")}</select></label>
         <label class="field"><span>If the Imp picks themselves, the new Imp is</span><select id="c-${i}-heir">${playerOpts(p => p.alive && C[p.character]?.type === "minion", "", "Scarlet Woman first, else random")}</select></label>`;
     }
+    if (s.key === "sailor") {
+      h += `<label class="field"><span>Who is drunk until dusk</span><select id="c-${i}-drunk"><option value="">Their pick</option><option value="${s.pids[0]}">The Sailor</option></select></label>`;
+    }
+    if (s.key === "innkeeper") {
+      h += `<label class="field"><span>Which guest is drunk until dusk</span><select id="c-${i}-drunk"><option value="">Random one of the two</option><option value="first">The first pick</option><option value="second">The second pick</option></select></label>`;
+    }
   }
-  const args = `{step:${i}, choices:[${[...Array(s.choose).keys()].map(k => `val('c-${i}-${k}')`).join(",")}]` +
-    (s.key === "imp" ? `, redirect: val('c-${i}-redirect') || null, new_demon: val('c-${i}-heir') || null` : "") + "}";
-  h += `<div class="line"><button class="btn small" onclick="act('resolve', ${args}, 't-${i}')">${s.choose ? "Apply their pick" : "Work out their info"}</button>
+  const pickArgs = `[${[...Array(s.choose).keys()].map(k => `val('c-${i}-${k}')`).join(",")}].filter(Boolean)`;
+  let extra = "";
+  if (s.key === "imp") extra = `, redirect: val('c-${i}-redirect') || null, new_demon: val('c-${i}-heir') || null`;
+  if (s.guess) extra = `, guess: val('c-${i}-guess') || null`;
+  if (s.key === "sailor") extra = `, drunk: val('c-${i}-drunk') || null`;
+  if (s.key === "innkeeper") extra = `, drunk: ({first: val('c-${i}-0'), second: val('c-${i}-1')})[val('c-${i}-drunk')] || null`;
+  const args = `{step:${i}, choices:${pickArgs}${extra}}`;
+  h += `<div class="line"><button class="btn small" onclick="act('resolve', ${args}, 't-${i}')">${s.choose || s.guess ? "Apply the pick" : "Work out their info"}</button>
     <button class="btn quiet small" onclick="openStep = null; act('finish_step', {step:${i}, done:${!s.done}})">${s.done ? "Reopen" : "Skip"}</button></div>`;
   if (s.suggestion !== null) {
     h += `<label class="field"><span>What they learn (edit if they are drunk, poisoned, or someone misregisters)</span><textarea id="t-${i}">${esc(s.suggestion)}</textarea></label>
@@ -513,12 +591,17 @@ function night() {
   const round2 = S.night > 1 ? `<h3>Second round</h3>
     ${S.second_round_done
       ? `<p class="note">Every phone has buzzed a second time.</p>`
-      : `<p class="note">Applying the Imp's kill buzzes every phone again, and a Ravenkeeper killed tonight gets their prompt. If the Ravenkeeper was killed, everyone else gets a second icon challenge while they pick. The second round happens every night so it gives nothing away.</p>
+      : `<p class="note">${S.script === "trouble_brewing"
+          ? "Applying the Imp's kill buzzes every phone again, and a Ravenkeeper killed tonight gets their prompt. If the Ravenkeeper was killed, everyone else gets a second icon challenge while they pick."
+          : "Applying the Demon's pick buzzes every phone again. If the Demon does not act tonight (exorcised, a Zombuul after a death, or drunk), buzz by hand."} The second round happens every night so it gives nothing away.</p>
          ${waitNote}<button class="btn quiet small" ${blocked} onclick="act('second_round')">Buzz every phone now</button>`}` : "";
   return `<h2>Night ${S.night}</h2>
     <p class="lede">Every phone has buzzed. ${S.dead_eyes ? "Dead Eyes Only: players see generic prompts that do not reveal their character." : "Players with a choice are picking; everyone else has a short icon challenge."} Work down the list as their picks arrive.</p>
     ${S.phones.length ? `<div class="phones"><p class="note"><span class="answer">${S.phones_done[0]} of ${S.phones_done[1]} phones done.</span> The second buzz and dawn wait for everyone.</p>
-      <ul>${S.phones.map(x => `<li class="${x.done ? "done" : ""}">${x.done ? "&#10003; " : ""}${esc(x.name)}</li>`).join("")}</ul></div>` : ""}
+      <ul>${S.phones.map(x => `<li class="${x.done ? "done" : ""}">${x.done ? "&#10003; " : ""}${esc(x.name)}${x.tap
+        ? ` <button class="skip" onclick="act('skip_tap', {pid:'${x.pid}'})" title="Mark ${esc(x.name)}'s icon challenge as done">skip</button>` : ""}</li>`).join("")}</ul>
+      ${S.phones.filter(x => x.tap).length > 1 ? `<button class="btn quiet small" onclick="act('skip_tap')">Skip every unfinished icon challenge</button>` : ""}
+      ${S.phones.some(x => x.tap) ? `<p class="note">Skipping marks a challenge done; the phone shows the same "Done" slip, so nobody can tell. Unanswered real choices are not skipped: apply their pick yourself in the step below.</p>` : ""}</div>` : ""}
     ${S.steps.length ? `<ol class="order">${S.steps.map((s, i) => stepItem(s, i, cur)).join("")}</ol>` : `<p class="note">Nobody has anything to do tonight.</p>`}
     ${round2}
     <h3>Dawn</h3>
@@ -544,6 +627,17 @@ function day() {
       <button class="btn quiet small" onclick="act('record_votes', {nomination:${i}, voters:[...voteDraft[${i}]]}).then(() => delete voteDraft[${i}])">Record ${voteDraft[i].size} ${voteDraft[i].size === 1 ? "vote" : "votes"}</button></div>`;
   }).join("");
   const butler = S.master ? `<p class="note">The Butler may only vote when ${esc(pname(S.master))} votes.</p>` : "";
+  const has = id => S.players.some(p => p.character === id);
+  const bmr = S.script === "bad_moon_rising";
+  const mastermind = S.mastermind_day === S.day ? `<div class="warn">Mastermind's extra day: if anyone is executed today, their team loses. No execution means evil wins.</div>` : "";
+  const gossip = has("gossip") ? `<h3>Gossip</h3>
+    <label class="line"><input type="checkbox" ${S.gossip_true ? "checked" : ""} onchange="act('set_gossip', {true: this.checked})"> Today's Gossip statement is true (a player dies tonight; you pick)</label>` : "";
+  const moon = S.players.find(p => p.character === "moonchild" && !p.alive);
+  const moonchild = moon ? `<h3>Moonchild</h3>
+    <p class="note">When ${esc(moon.name)} learns they died, they publicly choose a living player. If that player is good, they die tonight.</p>
+    <div class="line"><select id="moon-t" aria-label="Moonchild's choice">${playerOpts(p => p.alive, S.moonchild_target ?? "", "Nobody yet")}</select>
+      <button class="btn quiet small" onclick="act('moonchild_pick', {target: val('moon-t') || null}, 'moon-')">Record their choice</button></div>` : "";
+  const pacifist = has("pacifist") ? `<label class="line note"><input type="checkbox" id="pacifist"> The Pacifist spares the executed player if they are good</label>` : "";
   const timerActive = S.timer != null;
   const timerSec = S.timer ?? 0;
   const timerMins = Math.floor(timerSec / 60), timerSecR = timerSec % 60;
@@ -557,23 +651,25 @@ function day() {
          <button class="btn small" onclick="act('start_timer', {minutes: Number(val('timer-min'))})">Start timer</button></div>
          <p class="note">All phones buzz when time runs out.</p>`}</div>`;
   return `<h2>Day ${S.day}</h2>
+    ${mastermind}
     <p class="lede">${S.threshold} votes execute. Dashed names are dead and spend their only vote.</p>
     <ul class="crier">${S.announcements.map(a => `<li>${esc(a)}</li>`).join("")}</ul>
     <h3>Nominations</h3>
     <div class="line"><select id="nom-a" aria-label="Nominator">${playerOpts(p => p.alive, "", "Who nominates")}</select>
-      <select id="nom-b" aria-label="Nominee">${playerOpts(p => p.alive, "", "Who is nominated")}</select></div>
-    <label class="line note"><input type="checkbox" id="nom-spy"> A Spy nominating the Virgin registers as Townsfolk</label>
+      <select id="nom-b" aria-label="Nominee">${playerOpts(p => bmr || p.alive, "", "Who is nominated")}</select></div>
+    ${bmr ? `<p class="note">Dead players can be nominated: executing a Zombuul who seemed to die kills them for real.</p>` : `<label class="line note"><input type="checkbox" id="nom-spy"> A Spy nominating the Virgin registers as Townsfolk</label>`}
     <button class="btn small" onclick="act('nominate', {nominator: val('nom-a'), nominee: val('nom-b'), spy_as_townsfolk: val('nom-spy')}, 'nom-')">Nominate</button>
     ${butler}${noms}
-    <h3>Slayer claim</h3>
+    ${bmr ? gossip + moonchild : `<h3>Slayer claim</h3>
     <div class="line"><select id="sl-a" aria-label="Shooter">${playerOpts(p => p.alive, "", "Who shoots")}</select>
       <select id="sl-b" aria-label="Target">${playerOpts(p => p.alive, "", "At whom")}</select></div>
     <label class="line note"><input type="checkbox" id="sl-rec"> The Recluse registers as the Demon</label>
-    <button class="btn quiet small" onclick="act('slayer_shot', {shooter: val('sl-a'), target: val('sl-b'), recluse_as_demon: val('sl-rec')}, 'sl-')">Resolve the shot</button>
+    <button class="btn quiet small" onclick="act('slayer_shot', {shooter: val('sl-a'), target: val('sl-b'), recluse_as_demon: val('sl-rec')}, 'sl-')">Resolve the shot</button>`}
     ${timerCtl}
     <h3>Dusk</h3>
-    <p class="note">Executes the top nominee if they reached ${S.threshold} votes without a tie, then night falls.</p>
-    <button class="btn" onclick="Object.keys(voteDraft).forEach(k => delete voteDraft[k]); act('end_day')">End the day</button>`;
+    <p class="note">Executes the top nominee if they reached ${S.threshold} votes without a tie, then night falls.${bmr ? " Sailor, Tea Lady, Fool and Devil's Advocate saves are automatic." : ""}</p>
+    ${pacifist}
+    <button class="btn" onclick="Object.keys(voteDraft).forEach(k => delete voteDraft[k]); act('end_day', {spare: !!val('pacifist')}, 'pacifist')">End the day</button>`;
 }
 
 function over() {
@@ -587,7 +683,9 @@ function tools() {
   return `<details class="tools" ${toolsOpen ? "open" : ""} ontoggle="toolsOpen = this.open"><summary>End the game early</summary>
     <div class="line"><button class="btn quiet small" onclick="act('declare_winner', {team:'good'})">Good wins</button>
       <button class="btn quiet small" onclick="act('declare_winner', {team:'evil'})">Evil wins</button></div>
-    <p class="note">Bluffs: ${S.bluffs.map(cname).join(", ")}. Virgin ${S.virgin_spent ? "used" : "unused"}, Slayer ${S.slayer_spent ? "used" : "unused"}.</p></details>`;
+    <p class="note">Bluffs: ${S.bluffs.map(cname).join(", ")}. ${S.script === "trouble_brewing"
+      ? `Virgin ${S.virgin_spent ? "used" : "unused"}, Slayer ${S.slayer_spent ? "used" : "unused"}.`
+      : `Used up: ${S.spent.length ? S.spent.map(cname).join(", ") : "nothing yet"}.${S.po_charged ? " The Po is charged: three kills next." : ""}`}</p></details>`;
 }
 
 // notes are only sent by servers that support them; older servers omit S.inbox entirely
