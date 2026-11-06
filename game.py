@@ -991,6 +991,21 @@ class Game:
         p.prompt["answer"] = sequence
         self.phone_inputs += 1
 
+    def skip_tap(self, pid: str | None = None) -> None:
+        """Storyteller completes a player's unfinished tap challenge for them (every waiting one when pid is None).
+
+        The phone then shows the same "Done" slip as a finished challenge, so nobody can tell it was skipped.
+        Unanswered real choices are left alone: the Storyteller answers those in the night step instead.
+        """
+        self._require("night")
+        players = [self.get(pid)] if pid else self.players
+        skipped = [p for p in players if p.prompt and p.prompt["kind"] == "tap" and p.prompt["answer"] is None]
+        if not skipped:
+            raise GameError("No tap challenge to skip" + (f" for {players[0].name}" if pid else ""))
+        for p in skipped:
+            p.prompt["answer"] = list(p.prompt["target"])
+        self._log(f"Storyteller skipped the tap challenge for {', '.join(p.name for p in skipped)}")
+
     def note_to_storyteller(self, token: str, text: str) -> None:
         """Player sends a private note to the Storyteller (any phase, alive or dead)."""
         p = self.by_token(token)
@@ -1460,7 +1475,7 @@ class Game:
         gossip_true, moonchild_target, mastermind_day, deaths_today), red_herring, bluffs, poisoned, protected, master, virgin_spent,
         slayer_spent, executed_today, night_deaths, steps (with applies / impaired / answer added),
         nominations_full, queued {pid: [text]}, second_round_done, inbox [{pid, text, label, read}],
-        phones_done [done, total], phones [{pid, name, done}] (phone players a round waits for),
+        phones_done [done, total], phones [{pid, name, done, tap}] (phone players a round waits for; tap: stuck on a tap challenge),
         warnings, log, bluff_problems [str], undo (see undo_info).
         """
         steps = []
@@ -1479,7 +1494,9 @@ class Game:
             "night_deaths": self.night_deaths, "steps": steps, "nominations_full": self.nominations,
             "queued": {pid: texts for pid, texts in self.queued.items()}, "second_round_done": self.second_round_done,
             "inbox": self.inbox, "phones_done": list(self.phones_done()),
-            "phones": [{"pid": p.pid, "name": p.name, "done": p not in self.phones_waiting()} for p in self._phone_players()],
+            "phones": [{"pid": p.pid, "name": p.name, "done": p not in self.phones_waiting(),
+                        "tap": bool(p.prompt and p.prompt["kind"] == "tap" and p.prompt["answer"] is None)}
+                       for p in self._phone_players()],
             "warnings": self.setup_warnings(), "log": self.log, "undo": self.undo_info(),
             "bluff_problems": self.bluff_problems(self.bluffs) if self.phase == "setup" else [],
             # Bad Moon Rising

@@ -471,7 +471,7 @@ def test_dawn_waits_for_every_phone_with_no_override():
     with pytest.raises(GameError, match="Ben to finish"):
         g.start_day()
     assert g.phase == "night" and g.storyteller_view()["phones"] == [
-        {"pid": x.pid, "name": x.name, "done": x.name != "Ben"} for x in g.players]
+        {"pid": x.pid, "name": x.name, "done": x.name != "Ben", "tap": False} for x in g.players]
     finish_phones(g)
     g.start_day()
     assert g.phase == "day" and dev.prompt is None
@@ -1245,3 +1245,30 @@ def test_tap_tasks_use_script_icons():
 
 def test_script_names():
     assert {m["name"] for m in SCRIPTS.values()} == {"Trouble Brewing", "Bad Moon Rising"}
+
+
+def test_storyteller_skips_tap_challenges():
+    g = make(NINE, phones=True)
+    tappers = [x for x in g.players if x.prompt and x.prompt["kind"] == "tap"]
+    g.skip_tap(tappers[0].pid)
+    assert tappers[0].prompt["answer"] == tappers[0].prompt["target"]
+    assert tappers[0] not in g.phones_waiting()
+    with pytest.raises(GameError):
+        g.skip_tap(tappers[0].pid)
+    g.skip_tap()
+    assert all(x.prompt["kind"] == "choose" for x in g.phones_waiting()), "real choices are not skipped"
+    inputs = g.phone_inputs
+    assert inputs == 0, "a skip is not a pick made on a phone"
+
+
+def test_skip_tap_unblocks_dawn():
+    g = make(NINE, phones=True)
+    for x in g.phones_waiting():
+        if x.prompt["kind"] == "choose":
+            pool = [q.pid for q in g.players if x.prompt["allow_self"] or q.pid != x.pid]
+            g.choose(x.token, pool[:x.prompt["count"]])
+    with pytest.raises(GameError):
+        g.start_day()
+    g.skip_tap()
+    g.start_day()
+    assert g.phase == "day"

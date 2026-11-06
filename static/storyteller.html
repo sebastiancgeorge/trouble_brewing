@@ -89,6 +89,7 @@
   .phones ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0; margin: 0.3rem 0 1rem; }
   .phones li { padding: 0.1em 0.7em; border-radius: 999px; font-size: var(--t-sm); border: 1px dashed var(--oxblood); color: var(--oxblood); }
   .phones li.done { border: 1px solid var(--moss); color: var(--moss); }
+  .phones .skip { margin-left: 0.3em; border: 0; background: var(--oxblood); color: var(--parchment); border-radius: 999px; font-size: var(--t-xs); padding: 0 0.5em; cursor: pointer; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
   .chip { border: 1px solid var(--ink-soft); background: transparent; border-radius: 999px; padding: 0.2em 0.75em; cursor: pointer; color: var(--ink); }
@@ -597,7 +598,10 @@ function night() {
   return `<h2>Night ${S.night}</h2>
     <p class="lede">Every phone has buzzed. ${S.dead_eyes ? "Dead Eyes Only: players see generic prompts that do not reveal their character." : "Players with a choice are picking; everyone else has a short icon challenge."} Work down the list as their picks arrive.</p>
     ${S.phones.length ? `<div class="phones"><p class="note"><span class="answer">${S.phones_done[0]} of ${S.phones_done[1]} phones done.</span> The second buzz and dawn wait for everyone.</p>
-      <ul>${S.phones.map(x => `<li class="${x.done ? "done" : ""}">${x.done ? "&#10003; " : ""}${esc(x.name)}</li>`).join("")}</ul></div>` : ""}
+      <ul>${S.phones.map(x => `<li class="${x.done ? "done" : ""}">${x.done ? "&#10003; " : ""}${esc(x.name)}${x.tap
+        ? ` <button class="skip" onclick="act('skip_tap', {pid:'${x.pid}'})" title="Mark ${esc(x.name)}'s icon challenge as done">skip</button>` : ""}</li>`).join("")}</ul>
+      ${S.phones.filter(x => x.tap).length > 1 ? `<button class="btn quiet small" onclick="act('skip_tap')">Skip every unfinished icon challenge</button>` : ""}
+      ${S.phones.some(x => x.tap) ? `<p class="note">Skipping marks a challenge done; the phone shows the same "Done" slip, so nobody can tell. Unanswered real choices are not skipped: apply their pick yourself in the step below.</p>` : ""}</div>` : ""}
     ${S.steps.length ? `<ol class="order">${S.steps.map((s, i) => stepItem(s, i, cur)).join("")}</ol>` : `<p class="note">Nobody has anything to do tonight.</p>`}
     ${round2}
     <h3>Dawn</h3>
