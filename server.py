@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["fastapi", "uvicorn", "qrcode"]
 # ///
-"""LAN server for a Trouble Brewing game (FastAPI).
+"""LAN server for a Blood on the Clocktower game: Trouble Brewing or Bad Moon Rising (FastAPI).
 
 Players open http://<laptop-ip>:<port>/ on their phones; the Storyteller opens the /st URL
 printed at startup (it carries a secret key). Clients poll JSON state; all game logic lives in Game.
@@ -33,7 +33,7 @@ STATIC = Path(__file__).parent / "static"
 # Game methods the Storyteller page may call as POST /api/st/<name>
 ST_ACTIONS = {
     "add_player", "remove_player", "move_player", "deal", "set_character", "set_setup", "start_game",
-    "set_variant", "ask", "resolve", "second_round", "send", "finish_step", "message", "start_day",
+    "set_variant", "set_script", "set_gossip", "moonchild_pick", "ask", "resolve", "second_round", "send", "finish_step", "message", "start_day",
     "nominate", "record_votes", "slayer_shot", "end_day", "start_timer", "stop_timer",
     "read_inbox", "kill", "revive", "set_poisoned", "set_ghost_vote", "declare_winner", "reset",
     "undo",
@@ -43,8 +43,9 @@ ST_ACTIONS = {
 # undo-button text per action; {name} is the player named by the body's pid
 ACTION_LABELS = {
     "add_player": "Seat {body_name}", "remove_player": "Remove {name}", "move_player": "Move {name}",
-    "deal": "Deal characters", "set_character": "Change {name}'s character", "set_setup": "Save red herring and bluffs",
-    "start_game": "Start the game", "set_variant": "Change variant", "ask": "Ask again",
+    "deal": "Deal characters", "set_character": "Change {name}'s character", "set_setup": "Save setup choices",
+    "start_game": "Start the game", "set_variant": "Change variant", "set_script": "Change script",
+    "set_gossip": "Rule on the Gossip", "moonchild_pick": "Moonchild's choice", "ask": "Ask again",
     "resolve": "Work out a night step", "second_round": "Second buzz",
     "send": "Hold info for dawn", "finish_step": "Skip or reopen a night step", "message": "Message {name}",
     "start_day": "Start the day", "nominate": "Nomination", "record_votes": "Record votes", "slayer_shot": "Slayer shot",
@@ -74,9 +75,10 @@ class TapBody(BaseModel):
 
 
 class ChooseBody(BaseModel):
-    """POST /api/choose payload: the player's secret token and chosen pids."""
+    """POST /api/choose payload: the player's secret token, chosen pids, and a character id if asked for one."""
     token: str
     choices: list[str]
+    guess: str | None = None
 
 
 def create_app(game: Game, st_key: str, join_url: str) -> FastAPI:
@@ -94,7 +96,7 @@ def create_app(game: Game, st_key: str, join_url: str) -> FastAPI:
     Returns:
         FastAPI: the app.
     """
-    app = FastAPI(title="Trouble Brewing")
+    app = FastAPI(title="Blood on the Clocktower")
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     lock = threading.Lock()
 
@@ -157,7 +159,7 @@ def create_app(game: Game, st_key: str, join_url: str) -> FastAPI:
     @app.post("/api/choose")
     def choose(body: ChooseBody) -> dict:
         with lock:
-            game.choose(body.token, body.choices)
+            game.choose(body.token, body.choices, body.guess)
             game.version += 1
             return {}
 
@@ -217,7 +219,7 @@ def lan_ip() -> str:
 
 def main() -> None:
     """Start the server and print the player join URL (with QR) and the secret Storyteller URL."""
-    parser = argparse.ArgumentParser(description="Trouble Brewing LAN server")
+    parser = argparse.ArgumentParser(description="Blood on the Clocktower LAN server")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
